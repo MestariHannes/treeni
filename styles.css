@@ -577,8 +577,9 @@ body { padding-bottom: calc(var(--tab-h) + var(--safe-b) + 36px); }
 @media (prefers-reduced-motion: reduce) { .ring .fg, .sets tr.pop td, .tabs button.bump svg, .go-btn::after, .today .today-3d, .toplist li, .menu button { animation: none !important; } }
 /* 3D-studio: vihreä tausta ja valokeila */
 /* Kuvitustausta (Lyfta-esikuva): vaalea myös tummissa teemoissa, jotta kuvitus erottuu */
-.anim, .card .img { background: linear-gradient(180deg, #CFE5F6 0%, #E9F2F9 55%, #F7FAFC 100%) !important; box-shadow: none; }
-.th { background: linear-gradient(180deg, #D6EAF8, #F4F8FB); }
+/* Liikekuvien tausta latauksen ajan: Kotikatu-sali (vaalea seinä, vihreä alaosa, tumma lattia); 3D-kuva piirtää oman salinsa päälle */
+.anim, .card .img { background: linear-gradient(180deg, #EEF0E8 0%, #EEF0E8 48%, #B7EF14 48%, #B7EF14 49.5%, #5A7608 49.5%, #435A06 74%, #2E3329 74%, #23271F 100%) !important; box-shadow: none; }
+.th { background: #EEF0E8; }
 .anim-bar span { color: var(--muted); }
 
 .anim canvas { cursor: grab; }

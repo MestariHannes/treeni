@@ -303,9 +303,37 @@ function radTex(stops) {
   const gr = x.createRadialGradient(128, 128, 0, 128, 128, 128); stops.forEach(([o, col]) => gr.addColorStop(o, col));
   x.fillStyle = gr; x.fillRect(0, 0, 256, 256); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
+// Kotikatu-teeman sali: kumilaattalattia ja seinä (vihreä alaosa, limenvihreä raita, vaalea yläosa)
+let _floorTex, _wallTex;
+function floorTex() {
+  if (_floorTex) return _floorTex;
+  const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d');
+  x.fillStyle = '#2E3329'; x.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 9000; i++) { const v = Math.random(); x.fillStyle = v < .5 ? 'rgba(20,24,18,.55)' : v < .93 ? 'rgba(70,78,62,.5)' : 'rgba(183,239,20,.35)'; x.fillRect(Math.random() * 512, Math.random() * 512, 1.6, 1.6); }
+  x.strokeStyle = 'rgba(10,12,9,.8)'; x.lineWidth = 3; for (let k = 0; k <= 512; k += 256) { x.beginPath(); x.moveTo(k, 0); x.lineTo(k, 512); x.stroke(); x.beginPath(); x.moveTo(0, k); x.lineTo(512, k); x.stroke(); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(9, 9); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return (_floorTex = t);
+}
+function wallTex() {
+  if (_wallTex) return _wallTex;
+  const c = document.createElement('canvas'); c.width = 16; c.height = 512; const x = c.getContext('2d');
+  // Tekstuuri pystysuunnassa: alhaalla (512) lattia, ylhäällä (0) katto; seinän korkeus 6 m
+  const y = m => 512 - m / 6 * 512;
+  const gr = x.createLinearGradient(0, 0, 0, 512); gr.addColorStop(0, '#E9ECE2'); gr.addColorStop(1, '#F6F7F2'); x.fillStyle = gr; x.fillRect(0, 0, 16, 512);
+  const g2 = x.createLinearGradient(0, y(1.25), 0, 512); g2.addColorStop(0, '#5A7608'); g2.addColorStop(1, '#3E5305'); x.fillStyle = g2; x.fillRect(0, y(1.25), 16, 512 - y(1.25));
+  x.fillStyle = '#B7EF14'; x.fillRect(0, y(1.31), 16, y(1.25) - y(1.31));
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping;
+  return (_wallTex = t);
+}
+function buildRoom(scene, center) {
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(12, 64), new THREE.MeshStandardMaterial({ map: floorTex(), roughness: .92, metalness: 0 }));
+  floor.rotation.x = -Math.PI / 2; floor.position.set(center.x, 0, center.z); scene.add(floor);
+  const wall = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 6, 64, 1, true), new THREE.MeshStandardMaterial({ map: wallTex(), side: THREE.BackSide, roughness: .95 }));
+  wall.position.set(center.x, 3, center.z); scene.add(wall);
+}
 let _glow, _shadow;
 const glowTex = () => _glow || (_glow = radTex([[0, 'rgba(183,239,20,.55)'], [.35, 'rgba(110,170,20,.22)'], [1, 'rgba(0,0,0,0)']]));
-const shadowTex = () => _shadow || (_shadow = radTex([[0, 'rgba(0,0,0,.45)'], [.6, 'rgba(0,0,0,.15)'], [1, 'rgba(0,0,0,0)']]));
+const shadowTex = () => _shadow || (_shadow = radTex([[0, 'rgba(0,0,0,.6)'], [.6, 'rgba(0,0,0,.22)'], [1, 'rgba(0,0,0,0)']]));
 function cyl(r, len, mat, axis = 'x') {
   const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 24), mat);
   if (axis === 'x') m.rotation.z = Math.PI / 2; if (axis === 'z') m.rotation.x = Math.PI / 2;
@@ -429,7 +457,8 @@ async function setup(ex, sex, w, h) {
     renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.NoToneMapping; renderer.toneMappingExposure = .95;
   }
   const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x9098a0, 1.4));
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x5a6050, 1.35));
+  const ceil = new THREE.DirectionalLight(0xfffbf0, .9); ceil.position.set(0, 6, 0); scene.add(ceil);
   const key = new THREE.DirectionalLight(0xffffff, 1.9); key.position.set(-2, 3.5, 2.5); scene.add(key);
   const rim = new THREE.DirectionalLight(0xffffff, .5); scene.add(rim);
   const rim2 = new THREE.PointLight(0xffffff, 0, 1); scene.add(rim2);
@@ -445,6 +474,7 @@ async function setup(ex, sex, w, h) {
   const target = A0[anchor].clone();
   const k = (wp(M, 'neck_01').distanceTo(wp(M, 'pelvis'))) / MQ.L.torso;
   buildStatic(M, a, scene, A0);
+  buildRoom(scene, A0.pelvis);
   const props = buildProps(M, a, scene);
   const cable = buildCable(M, a, scene, A0, k);
   const place = t => {
