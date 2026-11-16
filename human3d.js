@@ -292,8 +292,8 @@ const MAT = {
   metal: new THREE.MeshStandardMaterial({ color: 0x9aa0a8, metalness: .8, roughness: .3 }),
   black: new THREE.MeshStandardMaterial({ color: 0x1d1f22, metalness: .1, roughness: .7 }),
   pad: new THREE.MeshStandardMaterial({ color: 0x2b2e33, metalness: 0, roughness: .8 }),
-  mat: new THREE.MeshStandardMaterial({ color: 0xb9c0c8, roughness: .9 }),
-  matEdge: new THREE.MeshStandardMaterial({ color: 0x8e96a0, roughness: .9 }),
+  mat: new THREE.MeshStandardMaterial({ color: 0x5A7608, roughness: .85 }),
+  matEdge: new THREE.MeshStandardMaterial({ color: 0x3E5305, roughness: .9 }),
   cable: new THREE.MeshBasicMaterial({ color: 0x222222 }),
   frame: new THREE.MeshStandardMaterial({ color: 0xd4d8dd, metalness: .35, roughness: .45 }),
   stack: new THREE.MeshStandardMaterial({ color: 0x2a2d31, metalness: .3, roughness: .5 })
