@@ -1,0 +1,16 @@
+{
+  "name": "Treeni",
+  "short_name": "Treeni",
+  "description": "Oma treenipäiväkirja: valitse lihas, löydä liike, kirjaa sarjat.",
+  "lang": "fi",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F6F7F2",
+  "theme_color": "#5A7608",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
