@@ -4,7 +4,7 @@
   const DB_URL = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
   const IMG = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
   const KEY = 'treeni.v1'; // avain pidetään samana, jotta vanhat tiedot säilyvät
-  const VERSION = '2.2';
+  const VERSION = '2.3';
   const PAGE = 30;
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -463,35 +463,40 @@
     const left = Math.max(0, target - done);
     const msg = done >= target ? 'Viikon tavoite täynnä. Hienoa!' : done ? `Vielä ${left} ${left === 1 ? 'treeni' : 'treeniä'} tavoitteeseen.` : 'Uusi viikko, uudet treenit.';
     const needBackup = S.history.length >= 5 && Date.now() - (S.lastBackup || 0) > 30 * DAY;
+    const mins = Math.round(nxt.items.reduce((a, i) => a + (+i.sets || 3), 0) * 2.5 / 5) * 5;
+    const own = nxt.id.startsWith('own-');
     box.innerHTML = `
       <div class="hello"><p>${now.toLocaleDateString('fi-FI', { weekday: 'long', day: 'numeric', month: 'numeric' })}</p><h2>${hello}, ${esc(P.name)}!</h2></div>
       ${S.active ? `<button class="banner" data-go="workout"><b>Treeni käynnissä</b><span>${esc(S.active.name || 'Oma treeni')} · ${S.active.items.length} liikettä</span><i>Jatka →</i></button>` : ''}
+      <div class="today">
+        <p class="today-k">Tänään</p>
+        <h3>${esc(nxt.name)}</h3>
+        <p class="today-m">${nxt.items.length} liikettä · noin ${mins} min${own ? ' · oma pohja' : ` · ${esc(g.name.toLowerCase())}`}</p>
+        <button class="go-btn" data-start="${esc(nxt.id)}">Aloita treeni</button>
+        <div class="today-l"><button data-toggle="list">${ui.showList ? 'Piilota liikkeet' : 'Näytä liikkeet'}</button><button data-toggle="pick">${ui.showPick ? 'Sulje' : 'Vaihda treeni'}</button></div>
+        ${ui.showPick ? `<div class="chips picks">${prog.sessions.map(s => `<button class="chip ${s.id === nxt.id ? '' : 'ghost'}" data-pick="${esc(s.id)}">${esc(s.name)}</button>`).join('')}
+          ${S.templates.map(t => `<button class="chip ${t.id === nxt.id ? '' : 'ghost'}" data-pick="${esc(t.id)}">★ ${esc(t.name)}</button>`).join('')}</div>
+          ${own ? `<button class="linkbtn" data-deltpl="${esc(nxt.id)}">Poista pohja</button>` : ''}` : ''}
+        ${ui.showList ? `<ul class="today-ul">${nxt.items.map(i => { const e = BY.get(i.id); return `<li data-ex="${esc(i.id)}"><span class="th">${thumb(e)}</span><span>${esc(e ? nameOf(e) : (FI.names[i.id] || i.id))}</span><b>${i.sets} × ${esc(i.reps || '–')}</b></li>`; }).join('')}</ul>` : ''}
+      </div>
       <div class="week">
         ${ring(done, target)}
-        <div class="week-t"><h3>Tämä viikko</h3><p>${msg}</p><div class="days">${days}</div></div>
+        <div class="week-t"><h3>${done >= target ? 'Viikon tavoite täynnä!' : `${done}/${target} tällä viikolla`}</h3><p>${st ? `🔥 ${st} viikon putki` : msg}</p><div class="days">${days}</div></div>
       </div>
-      <div class="stats">
-        <div class="stat"><b>${st}</b><span>viikon putki</span></div>
-        <div class="stat"><b>${S.history.length}</b><span>treeniä yhteensä</span></div>
-        <div class="stat txt"><b>${esc(g.name)}</b><span>tavoite</span></div></div>
       ${needBackup ? '<button class="banner warn" data-backup><b>Ota varmuuskopio</b><span>Tiedot ovat vain tässä puhelimessa.</span><i>Vie →</i></button>' : ''}
-      <h3 class="section-t">Seuraava treeni</h3>
-      <div class="chips picks">${prog.sessions.map(s => `<button class="chip ${s.id === nxt.id ? '' : 'ghost'}" data-pick="${esc(s.id)}">${esc(s.name)}</button>`).join('')}
-        ${S.templates.map(t => `<button class="chip ${t.id === nxt.id ? '' : 'ghost'}" data-pick="${esc(t.id)}">★ ${esc(t.name)}</button>`).join('')}</div>
-      ${tplCard(nxt, nxt.id.startsWith('own-') ? 'Oma pohja' : `${prog.name} · ${g.name.toLowerCase()} · lepo ${g.rest} s`)}
-      ${nxt.id.startsWith('own-') ? `<button class="linkbtn" data-deltpl="${esc(nxt.id)}">Poista pohja</button>` : ''}
-      <h3 class="section-t">Viimeisin treeni</h3>
-      ${last ? `<div class="hist"><div class="d">${date(last.start)} <span>${dur(last.end - last.start)}</span></div>${last.name ? `<div class="wn">${esc(last.name)}</div>` : ''}
-        <ul>${last.items.map(i => `<li>${esc(BY.get(i.id) ? nameOf(BY.get(i.id)) : (FI.names[i.id] || i.id))}: ${i.sets.map(s => `${fmt(s.kg)}×${s.reps}`).join(', ')}</li>`).join('')}</ul></div>`
-        : '<p class="empty small">Ensimmäinen treeni odottaa. Valitse yllä oleva treeni tai etsi liikkeitä lihaskartalta.</p>'}
-      <button class="cta alt" data-go="muscles">Etsi liikkeitä lihaskartalta</button>`;
+      <div class="quick">
+        <button data-go="muscles"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5"/><path d="M6 9h12M12 9v6m0 0-3 6m3-6 3 6"/></svg>Etsi liike</button>
+        <button data-go="history"><svg viewBox="0 0 24 24"><path d="M4 19V5m0 14h16M8 15l3-4 3 2 5-6"/></svg>Kehitys</button>
+      </div>
+      ${last ? `<p class="lastline">Viimeksi ${date(last.start)}: <b>${esc(last.name || last.items.map(i => BY.get(i.id) ? nameOf(BY.get(i.id)) : i.id).slice(0, 2).join(', '))}</b></p>` : ''}`;
   }
   $('#home').addEventListener('click', ev => {
     const t = ev.target;
     if (t.closest('#obOpen')) return openOnboard();
     if (t.closest('[data-go]')) return go(t.closest('[data-go]').dataset.go);
     if (t.closest('[data-backup]')) return exportData();
-    const pk = t.closest('[data-pick]'); if (pk) { ui.pick = pk.dataset.pick; return renderHome(); }
+    const tg = t.closest('[data-toggle]'); if (tg) { const k = tg.dataset.toggle === 'list' ? 'showList' : 'showPick'; ui[k] = !ui[k]; return renderHome(); }
+    const pk = t.closest('[data-pick]'); if (pk) { ui.pick = pk.dataset.pick; ui.showPick = false; return renderHome(); }
     const sb = t.closest('[data-start]'); if (sb) { const tp = findTpl(sb.dataset.start); if (tp) startTemplate(tp); return; }
     const dl = t.closest('[data-deltpl]');
     if (dl) {

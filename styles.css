@@ -346,3 +346,32 @@ button { cursor: pointer; }
 }
 /* Sovelluksen sisältö liukuu esiin avauksen jälkeen */
 body.opening .top, body.opening main, body.opening .tabs { animation: rise .5s ease 1.3s both; }
+
+/* ===== v2.3: yksinkertainen Koti ===== */
+.today { background: linear-gradient(150deg, var(--green) 0%, var(--green-2) 100%); color: #fff; border-radius: 22px; padding: 18px 18px 14px; margin-bottom: 12px; box-shadow: 0 10px 28px -14px rgba(60, 80, 0, .6); }
+.today-k { margin: 0; font: 600 12px Oswald, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--lime); }
+.today h3 { font-size: 30px; margin: 2px 0 4px; }
+.today-m { margin: 0 0 14px; font-size: 13px; opacity: .85; }
+.go-btn { display: block; width: 100%; border: 0; border-radius: 16px; padding: 17px; background: var(--lime); color: #141414; font: 700 19px Oswald, sans-serif; letter-spacing: .06em; text-transform: uppercase; box-shadow: 0 6px 18px -6px rgba(183, 239, 20, .7); transition: transform .12s; }
+.go-btn:active { transform: scale(.97); }
+.today-l { display: flex; justify-content: space-between; margin-top: 10px; }
+.today-l button { border: 0; background: none; color: #fff; opacity: .85; font-size: 13px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; padding: 4px 0; }
+.today .chips { margin: 10px 0 0; }
+.today .chip.ghost { background: rgba(255,255,255,.12); color: #fff; border-color: rgba(255,255,255,.25); }
+.today .chip:not(.ghost) { background: var(--lime); color: #141414; }
+.today .linkbtn { color: #FFD3CF; }
+.today-ul { list-style: none; margin: 10px 0 0; padding: 0; animation: rise .25s ease both; }
+.today-ul li { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid rgba(255,255,255,.15); font-size: 14px; font-weight: 600; cursor: pointer; }
+.today-ul li span:nth-child(2) { flex: 1; line-height: 1.25; }
+.today-ul li b { color: var(--lime); font-size: 13px; white-space: nowrap; }
+.today-ul .th { background: rgba(255,255,255,.14); }
+.quick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 12px; }
+.quick button { display: flex; align-items: center; gap: 10px; padding: 14px; border-radius: 16px; border: 1px solid var(--line); background: var(--card); font-weight: 700; font-size: 14px; text-align: left; }
+.quick svg { width: 24px; height: 24px; fill: none; stroke: var(--green); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.quick svg circle { fill: var(--green); stroke: none; }
+.lastline { margin: 0 0 8px; text-align: center; font-size: 13px; color: var(--muted); }
+.lastline b { color: var(--ink); }
+.week { padding: 12px 14px; }
+.week .ring { width: 64px; height: 64px; }
+.week-t h3 { font-size: 16px; }
+.week-t p { margin: 2px 0 7px; }
