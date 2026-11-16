@@ -4,14 +4,14 @@
   const DB_URL = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
   const IMG = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
   const KEY = 'treeni.v1'; // avain pidetään samana, jotta vanhat tiedot säilyvät
-  const VERSION = '2.0';
+  const VERSION = '2.1';
   const PAGE = 30;
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   /* ---------- Tila ---------- */
   /* Tietorakenne (schema 2). profile on suunniteltu niin, että tuleva AI-koutsi voi lukea sen sellaisenaan:
-     profile = { v, name, goal, level, daysPerWeek, equipment, heightCm, weightKg, created, updated }
+     profile = { v, name, sex, goal, level, daysPerWeek, equipment, heightCm, weightKg, created, updated }
      bodyLog = [{ ts, kg }]   templates = [{ id, name, items: [{ id, sets, reps }] }]
      history = [{ start, end, templateId, name, items: [{ id, sets: [{ kg, reps }] }] }] */
   let S = { schema: 2, active: null, history: [], rest: 90, favs: [], profile: null, bodyLog: [], templates: [], lastBackup: 0 };
@@ -56,7 +56,9 @@
 
   /* ---------- Lihakset-näkymä ---------- */
   function renderMap() {
-    $('#map').innerHTML = Muscles.svg('front', { interactive: true, selected: ui.sel }) + Muscles.svg('back', { interactive: true, selected: ui.sel });
+    const sex = bodySex();
+    $('#map').innerHTML = Muscles.svg('front', { interactive: true, selected: ui.sel, sex }) + Muscles.svg('back', { interactive: true, selected: ui.sel, sex });
+    document.querySelectorAll('#sexSeg button').forEach(b => b.classList.toggle('on', b.dataset.sex === sex));
     const c = $('#selChips');
     c.innerHTML = ui.sel.size
       ? [...ui.sel].map(m => `<button class="chip" data-unsel="${esc(m)}">${esc(mName(m))} <b>×</b></button>`).join('') +
@@ -91,16 +93,18 @@
     ui.sel.has(m) ? ui.sel.delete(m) : ui.sel.add(m);
     ui.shown = PAGE; renderMap(); renderList();
   });
+  // Kehon malli: profiilin sukupuoli (tai valinta ilman profiilia)
+  function bodySex() { return (S.profile && S.profile.sex) || S.bodySex || 'male'; }
+  $('#sexSeg').addEventListener('click', ev => {
+    const b = ev.target.closest('[data-sex]'); if (!b) return;
+    if (S.profile) S.profile.sex = b.dataset.sex; else S.bodySex = b.dataset.sex;
+    save(); renderMap();
+  });
   $('#selChips').addEventListener('click', ev => {
     const b = ev.target.closest('[data-unsel],[data-clear]'); if (!b) return;
     b.dataset.clear !== undefined ? ui.sel.clear() : ui.sel.delete(b.dataset.unsel);
     ui.shown = PAGE; renderMap(); renderList();
   });
-  document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
-    ui.side = b.dataset.side;
-    document.querySelectorAll('.seg button').forEach(x => x.classList.toggle('on', x === b));
-    renderMap();
-  }));
   $('#search').addEventListener('input', ev => { ui.q = ev.target.value; ui.shown = PAGE; renderList(); });
   $('#equip').addEventListener('change', ev => { ui.equip = ev.target.value; ui.shown = PAGE; renderList(); });
   $('#more').addEventListener('click', () => { ui.shown += PAGE; renderList(); });
@@ -153,7 +157,7 @@
       card.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
       if (t === 'info') {
         pane.innerHTML = `
-          <h4>Kohdelihakset</h4>${Muscles.pair({ primary: e.primaryMuscles, secondary: sec })}
+          <h4>Kohdelihakset</h4>${Muscles.pair({ primary: e.primaryMuscles, secondary: sec, sex: bodySex() })}
           <div class="tags" style="margin-top:10px">${e.primaryMuscles.map(m => `<span class="tag p">${esc(mName(m))}</span>`).join('')}${sec.map(m => `<span class="tag">${esc(mName(m))}</span>`).join('')}</div>
           <h4>Tiedot</h4><div class="tags"><span class="tag">${esc(eqName(e.equipment))}</span><span class="tag">${esc(FI.level[e.level] || e.level)}</span>${FI.names[e.id] ? `<span class="tag">${esc(e.name)}</span>` : ''}</div>
           <h4>Suoritus</h4><ol>${(e.instructions || []).map(s => `<li>${esc(s)}</li>`).join('')}</ol>
@@ -455,6 +459,7 @@
     const goals = Object.fromEntries(Object.entries(Programs.GOALS).map(([k, v]) => [k, v.name]));
     return `<form class="pform" id="pform" autocomplete="off">
       <label class="fld"><span>Nimi</span><input name="name" required maxlength="30" value="${esc(p.name || '')}" placeholder="Etunimi"></label>
+      <fieldset><legend>Kehon malli</legend><div class="opts">${opts('sex', { male: 'Mies', female: 'Nainen' }, p.sex || S.bodySex || 'male')}</div></fieldset>
       <fieldset><legend>Tavoite</legend><div class="opts">${opts('goal', goals, p.goal || 'muscle')}</div></fieldset>
       <fieldset><legend>Kokemus</legend><div class="opts">${opts('level', Programs.LEVELS, p.level || 'beginner')}</div></fieldset>
       <fieldset><legend>Treenejä viikossa</legend><div class="opts">${opts('daysPerWeek', { 2: '2', 3: '3', 4: '4', 5: '5', 6: '6' }, p.daysPerWeek || 3)}</div></fieldset>
@@ -469,11 +474,11 @@
   function readForm(f) {
     const d = new FormData(f), num = k => { const v = parseFloat(String(d.get(k) || '').replace(',', '.')); return v > 0 ? v : null; };
     const old = S.profile || {};
-    const p = { v: 1, name: String(d.get('name') || '').trim(), goal: d.get('goal'), level: d.get('level'), daysPerWeek: +d.get('daysPerWeek'),
+    const p = { v: 1, name: String(d.get('name') || '').trim(), sex: d.get('sex') || 'male', goal: d.get('goal'), level: d.get('level'), daysPerWeek: +d.get('daysPerWeek'),
       equipment: d.get('equipment'), heightCm: num('heightCm'), weightKg: num('weightKg'), created: old.created || Date.now(), updated: Date.now() };
     if (p.weightKg && p.weightKg !== old.weightKg) S.bodyLog.push({ ts: Date.now(), kg: p.weightKg });
     if (p.goal !== old.goal) S.rest = (Programs.GOALS[p.goal] || {}).rest || S.rest;
-    S.profile = p; ui.pick = null; save(); renderAvatar(); renderHome();
+    S.profile = p; ui.pick = null; save(); renderAvatar(); renderHome(); renderMap();
   }
   function openOnboard() {
     const o = $('#onboard');

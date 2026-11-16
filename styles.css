@@ -9,7 +9,8 @@
   --card: #FFFFFF;
   --line: #E2E4DA;
   --body: #E6E8DF;
-  --muscle: #C5CBB6;
+  --muscle: #BEC5AC;
+  --hair: #5B5547;
   --danger: #B3261E;
   --tab-h: 64px;
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -18,7 +19,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #11130E; --card: #1B1E16; --ink: #F1F3EA; --muted: #A2A694;
-    --line: #2C3024; --body: #262A20; --muscle: #3A4030; --lime-soft: #34420F;
+    --line: #2C3024; --body: #262A20; --muscle: #3A4030; --hair: #4A4538; --lime-soft: #34420F;
     color-scheme: dark;
   }
 }
@@ -67,8 +68,13 @@ button { cursor: pointer; }
 .map-wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; padding: 12px 6px; }
 .map-wrap .bodymap { width: 100%; max-width: none; height: auto; max-height: min(48vh, 400px); }
 .hint { color: var(--muted); font-size: 12.5px; font-weight: 600; }
-.bodymap .body *, .bodymap > g > path:not(.m), .bodymap > g > ellipse, .bodymap g ellipse, .bodymap g rect { fill: var(--body); }
-.bodymap .m { fill: var(--muscle); stroke: var(--card); stroke-width: 1.2; transition: fill .15s; }
+.bodymap .sil { fill: var(--body); stroke: var(--line); stroke-width: .8; }
+.bodymap .ear { stroke-width: .6; }
+.bodymap .hair { fill: var(--hair); }
+.bodymap .shade { pointer-events: none; }
+.bodymap .dec { fill: var(--muscle); opacity: .55; pointer-events: none; }
+.bodymap .ln path { fill: none; stroke: var(--muscle); stroke-width: 1.1; stroke-linecap: round; pointer-events: none; }
+.bodymap .m { fill: var(--muscle); stroke: var(--body); stroke-width: 1; stroke-linejoin: round; transition: fill .15s; }
 .bodymap.live .m { cursor: pointer; }
 .bodymap.live .m:hover { fill: var(--lime-soft); }
 .bodymap .m.sel, .bodymap .m.pri { fill: var(--lime); stroke: var(--green); stroke-width: 1.4; }
