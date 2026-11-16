@@ -4,7 +4,7 @@
   const DB_URL = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
   const IMG = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
   const KEY = 'treeni.v1'; // avain pidetään samana, jotta vanhat tiedot säilyvät
-  const VERSION = '3.5';
+  const VERSION = '3.6';
   const PAGE = 30;
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -270,10 +270,10 @@
         const r = recordsFor(id);
         pane.innerHTML = r.vol ? `<div class="prs">
           <div class="pr">Suurin paino <b>${fmt(r.maxKg)} kg × ${r.maxKgReps}</b></div>
-          <div class="pr">Arvioitu 1RM <b>${fmt(r.best)} kg</b></div>
+          <div class="pr">Arvioitu maksimi (1 toisto) <b>${fmt(r.best)} kg</b></div>
           <div class="pr">Eniten toistoja sarjassa <b>${r.mostReps}</b></div>
           <div class="pr">Kokonaisvolyymi <b>${Math.round(r.vol).toLocaleString('fi-FI')} kg</b></div></div>
-          <p class="note">Arvioitu 1RM lasketaan Epleyn kaavalla.</p>`
+          <p class="note">Arvioitu maksimi kertoo, paljonko jaksaisit nostaa yhden kerran. Se lasketaan tehdyistä sarjoista (Epleyn kaava).</p>`
           : '<p class="empty">Ennätykset näkyvät, kun olet tehnyt liikettä.</p>';
       }
     };
@@ -401,6 +401,14 @@
     const floor = P.sex === 'female' ? 1200 : 1500;
     return { kcal: Math.round(Math.max(floor, kcal) / 10) * 10, floored: kcal < floor };
   }
+  // Painon trendi: viimeisen 7 päivän keskiarvo verrattuna edellisiin 7 päivään
+  function trendLine() {
+    const now = Date.now(), D = 864e5, avg = (a, b) => { const v = S.bodyLog.filter(x => x.ts > now - a * D && x.ts <= now - b * D).map(x => x.kg); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
+    const cur = avg(7, 0), prev = avg(14, 7);
+    if (cur === null) return '';
+    const diff = prev === null ? null : cur - prev;
+    return `<p class="gc-trend">Viikon keskiarvo <b>${fmt(cur)} kg</b>${diff === null ? '' : ` · ${diff <= 0 ? '↓' : '↑'} ${fmt(Math.abs(diff))} kg edelliseen viikkoon`}</p>`;
+  }
   function weightCard() {
     const g = S.goals && S.goals.weightLoss; if (!g) return '';
     const w = lastWeight(), start = (S.bodyLog[0] && S.bodyLog[0].kg) || w, tgt = +g.targetKg || null;
@@ -417,8 +425,9 @@
       <div class="gc-row"><span class="big">${w ? fmt(w) + ' kg' : '–'}</span><span>tavoite ${tgt ? fmt(tgt) + ' kg' : '–'}</span></div>
       <div class="bar"><i style="width:${Math.round(pct * 100)}%"></i></div>
       ${spark}
+      ${trendLine()}
       <p class="gc-note">${left === 0 ? 'Tavoitepaino saavutettu!' : weeks ? `Tahdilla ${fmt(+g.pace || .5)} kg/vk noin ${weeks} viikkoa jäljellä.` : 'Lisää paino ja tavoite profiiliin.'}
-      ${k ? ` Energia noin <b>${k.kcal} kcal/päivä</b>${k.floored ? ' (alaraja)' : ''}.` : (S.profile && !S.profile.birthYear ? ' Lisää syntymävuosi profiiliin, niin saat kaloriarvion.' : '')}</p></div>`;
+      ${k ? ` Energia noin <b>${k.kcal} kcal/päivä</b>${k.floored ? ' (alaraja)' : ''}. <i class="disc">Yleistä tietoa, ei terveydenhoidon neuvontaa.</i>` : (S.profile && !S.profile.birthYear ? ' Lisää syntymävuosi profiiliin, niin saat kaloriarvion.' : '')}</p></div>`;
   }
   function progressCard() {
     if (!progressOn()) return '';
@@ -699,6 +708,7 @@
       <fieldset><legend>Kokemus</legend><div class="opts">${opts('level', Programs.LEVELS, p.level || 'beginner')}</div></fieldset>
       <fieldset><legend>Treenejä viikossa</legend><div class="opts">${opts('daysPerWeek', Object.fromEntries(Array.from({ length: 15 }, (_, i) => [i + 1, String(i + 1)])), p.daysPerWeek || 3)}</div></fieldset>
       <fieldset><legend>Missä treenaat</legend><div class="opts">${opts('equipment', Programs.EQUIP, p.equipment || 'gym')}</div></fieldset>
+      <label class="sw"><input type="checkbox" name="bigText" ${S.bigText ? 'checked' : ''}><span></span><b>Isompi teksti</b><small>Suuremmat kirjaimet ja painikkeet koko sovellukseen.</small></label>
       <fieldset><legend>Teema</legend><div class="opts">${opts('theme', { auto: 'Automaattinen', light: 'Vaalea', dark: 'Tumma', black: 'Musta' }, S.theme || 'auto')}</div></fieldset>
       <div class="two">
         <label class="fld"><span>Pituus (cm) <i>vapaaehtoinen</i></span><input name="heightCm" inputmode="numeric" value="${esc(p.heightCm || '')}"></label>
@@ -721,8 +731,14 @@
     const p = { v: 1, name: String(d.get('name') || '').trim(), sex: d.get('sex') || 'male', goal: d.get('goal'), level: d.get('level'), daysPerWeek: +d.get('daysPerWeek'),
       equipment: d.get('equipment'), heightCm: num('heightCm'), weightKg: num('weightKg'), birthYear: (n => n > 1900 && n < 2020 ? n : null)(+d.get('birthYear')), created: old.created || Date.now(), updated: Date.now() };
     if (p.weightKg && p.weightKg !== old.weightKg) S.bodyLog.push({ ts: Date.now(), kg: p.weightKg });
-    S.theme = d.get('theme') || 'auto'; applyTheme();
-    S.goals = { progress: !!d.get('gProgress'), weightLoss: d.get('gLoss') ? { targetKg: num('targetKg'), pace: +d.get('pace') || .5 } : null };
+    S.theme = d.get('theme') || 'auto'; S.bigText = !!d.get('bigText'); applyTheme();
+    let wl = d.get('gLoss') ? { targetKg: num('targetKg'), pace: +d.get('pace') || .5 } : null;
+    // Turvarajat: ei alle 18-vuotiaille, tavoitepaino vähintään BMI 18,5, vauhti enintään 1 % kehonpainosta viikossa
+    const age = p.birthYear ? new Date().getFullYear() - p.birthYear : null;
+    if (wl && age !== null && age < 18) { wl = null; toast('Painonpudotustila on 18 vuotta täyttäneille'); }
+    if (wl && wl.targetKg && p.heightCm) { const minKg = Math.ceil(18.5 * (p.heightCm / 100) ** 2); if (wl.targetKg < minKg) { wl.targetKg = minKg; toast(`Tavoitepaino nostettu terveelle alueelle (${minKg} kg)`); } }
+    if (wl && p.weightKg) wl.pace = Math.min(wl.pace, Math.round(p.weightKg * .01 * 4) / 4 || .25);
+    S.goals = { progress: !!d.get('gProgress'), weightLoss: wl };
     if (p.goal !== old.goal) S.rest = (Programs.GOALS[p.goal] || {}).rest || S.rest;
     S.profile = p; ui.pick = null; save(); renderAvatar(); renderHome(); renderMap();
   }
@@ -852,6 +868,7 @@
   function applyTheme() {
     const t = S.theme || 'auto', r = document.documentElement;
     if (t === 'auto') delete r.dataset.theme; else r.dataset.theme = t;
+    r.classList.toggle('big', !!S.bigText);
     const dark = t === 'black' || t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
     document.querySelector('meta[name=theme-color]').setAttribute('content', t === 'black' ? '#000000' : dark ? '#11130E' : '#5A7608');
   }
