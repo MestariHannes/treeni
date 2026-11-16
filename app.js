@@ -4,14 +4,15 @@
   const DB_URL = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
   const IMG = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
   const KEY = 'treeni.v1'; // avain pidetään samana, jotta vanhat tiedot säilyvät
-  const VERSION = '2.3';
+  const VERSION = '2.4';
   const PAGE = 30;
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   /* ---------- Tila ---------- */
   /* Tietorakenne (schema 2). profile on suunniteltu niin, että tuleva AI-koutsi voi lukea sen sellaisenaan:
-     profile = { v, name, sex, goal, level, daysPerWeek, equipment, heightCm, weightKg, created, updated }
+     goals = { progress: bool, weightLoss: { targetKg, pace } | null }
+     profile = { v, name, sex, birthYear, goal, level, daysPerWeek, equipment, heightCm, weightKg, created, updated }
      bodyLog = [{ ts, kg }]   templates = [{ id, name, items: [{ id, sets, reps }] }]
      history = [{ start, end, templateId, name, items: [{ id, sets: [{ kg, reps }] }] }] */
   let S = { schema: 2, active: null, history: [], rest: 90, favs: [], profile: null, bodyLog: [], templates: [], lastBackup: 0 };
@@ -276,6 +277,69 @@
     t.items.forEach(it => addToWorkout(it.id, { sets: it.sets, reps: it.reps, quiet: true }));
     save(); go('workout'); toast(`${t.name}: tsemppiä!`);
   }
+  /* ---------- Tavoitetila: nosta painoja joka viikko (progressiivinen ylikuorma) ---------- */
+  function progressOn() { return !!(S.goals && S.goals.progress); }
+  // Jos viime kerralla kaikki sarjat ylsivät toistoalueen ylärajaan, ehdota lisää painoa; muuten yksi toisto lisää
+  function nextLoad(it, prev, e) {
+    const top = parseInt(String(it.reps || '').split(/[–-]/).pop(), 10) || 12;
+    const lo = parseInt(it.reps, 10) || Math.max(1, top - 4);
+    const kg = Math.max(...prev.map(x => +x.kg || 0));
+    if (!kg) return null; // oman painon liikkeet: ei painoehdotusta
+    const allTop = prev.length && prev.every(x => (+x.reps || 0) >= top);
+    const step = e && /dumbbell|kettlebell/.test(e.equipment || '') ? 2 : 2.5;
+    if (allTop) return { kg: kg + step, reps: lo, up: true };
+    const best = prev.reduce((a, x) => (+x.kg || 0) === kg ? Math.max(a, +x.reps || 0) : a, 0);
+    return { kg, reps: Math.min(top, best + 1), up: false };
+  }
+  // Tämän viikon nousut: liikkeet, joiden paras arvioitu 1RM ylitti aiemman ennätyksen
+  function weekGains() {
+    const ws = weekStart(Date.now()).getTime(), before = {}, now = {};
+    S.history.forEach(w => w.items.forEach(i => i.sets.forEach(x => {
+      const v = e1rm(+x.kg || 0, +x.reps || 0), t = w.start < ws ? before : now;
+      t[i.id] = Math.max(t[i.id] || 0, v);
+    })));
+    return Object.keys(now).filter(id => before[id] && now[id] > before[id] + .01);
+  }
+
+  /* ---------- Tavoitetila: painonpudotus ---------- */
+  function lastWeight() { const l = S.bodyLog[S.bodyLog.length - 1]; return l ? l.kg : (S.profile && S.profile.weightKg) || null; }
+  // Suuntaa-antava energiantarve (Mifflin–St Jeor), vaatii pituuden, painon ja iän
+  function kcalTarget() {
+    const P = S.profile || {}, w = lastWeight(), g = S.goals && S.goals.weightLoss;
+    if (!g || !w || !P.heightCm || !P.birthYear) return null;
+    const age = new Date().getFullYear() - P.birthYear;
+    const bmr = 10 * w + 6.25 * P.heightCm - 5 * age + (P.sex === 'female' ? -161 : 5);
+    const tdee = bmr * Math.min(1.9, 1.3 + .05 * (+P.daysPerWeek || 3));
+    const kcal = tdee - (+g.pace || .5) * 7700 / 7;
+    const floor = P.sex === 'female' ? 1200 : 1500;
+    return { kcal: Math.round(Math.max(floor, kcal) / 10) * 10, floored: kcal < floor };
+  }
+  function weightCard() {
+    const g = S.goals && S.goals.weightLoss; if (!g) return '';
+    const w = lastWeight(), start = (S.bodyLog[0] && S.bodyLog[0].kg) || w, tgt = +g.targetKg || null;
+    const pct = w && tgt && start > tgt ? Math.max(0, Math.min(1, (start - w) / (start - tgt))) : 0;
+    const left = w && tgt ? Math.max(0, w - tgt) : null, weeks = left ? Math.ceil(left / (+g.pace || .5)) : null;
+    const pts = S.bodyLog.slice(-12).map(x => x.kg), k = kcalTarget();
+    let spark = '';
+    if (pts.length > 1) {
+      const lo = Math.min(...pts, tgt || Infinity), hi = Math.max(...pts), sp = hi - lo || 1;
+      spark = `<svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none"><polyline points="${pts.map((v, i) => `${i * 100 / (pts.length - 1)},${28 - (v - lo) / sp * 26}`).join(' ')}"/></svg>`;
+    }
+    return `<div class="goalcard">
+      <div class="gc-h"><b>Painonpudotus</b><button class="mini" data-weigh>+ Punnitse</button></div>
+      <div class="gc-row"><span class="big">${w ? fmt(w) + ' kg' : '–'}</span><span>tavoite ${tgt ? fmt(tgt) + ' kg' : '–'}</span></div>
+      <div class="bar"><i style="width:${Math.round(pct * 100)}%"></i></div>
+      ${spark}
+      <p class="gc-note">${left === 0 ? 'Tavoitepaino saavutettu!' : weeks ? `Tahdilla ${fmt(+g.pace || .5)} kg/vk noin ${weeks} viikkoa jäljellä.` : 'Lisää paino ja tavoite profiiliin.'}
+      ${k ? ` Energia noin <b>${k.kcal} kcal/päivä</b>${k.floored ? ' (alaraja)' : ''}.` : (S.profile && !S.profile.birthYear ? ' Lisää syntymävuosi profiiliin, niin saat kaloriarvion.' : '')}</p></div>`;
+  }
+  function progressCard() {
+    if (!progressOn()) return '';
+    const g = weekGains();
+    return `<div class="goalcard"><div class="gc-h"><b>Nosta painoja joka viikko</b><span class="pill2">${g.length ? '↑ ' + g.length : '0'}</span></div>
+      <p class="gc-note">${g.length ? `Tällä viikolla ennätys nousi ${g.length} liikkeessä: ${g.slice(0, 3).map(id => esc(BY.get(id) ? nameOf(BY.get(id)) : id)).join(', ')}.` : 'Treenissä ↑-merkki näyttää, missä kannattaa lisätä painoa tänään.'}</p></div>`;
+  }
+
   let finishArmed = false;
   function renderWorkout() {
     const box = $('#workout');
@@ -300,10 +364,12 @@
           ${it.sets.map((s, si) => {
             const p = prev[si];
             const b = it.sets[si - 1];
-            const ph = p || (b && b.reps ? b : null) || (it.reps ? { kg: null, reps: parseInt(it.reps, 10) } : null); // ehdotus: viime kerta, edellinen sarja tai tavoite
+            let ph = p || (b && b.reps ? b : null) || (it.reps ? { kg: null, reps: parseInt(it.reps, 10) } : null); // ehdotus: viime kerta, edellinen sarja tai tavoite
+            const up = p && progressOn() ? nextLoad(it, prev, e) : null; // tavoitetila: nosta painoja
+            if (up) ph = up;
             return `<tr class="${s.done ? 'done' : ''}" data-si="${si}">
               <td class="n">${si + 1}</td>
-              <td class="prev">${p ? `${fmt(+p.kg || 0)}×${+p.reps || 0}` : '–'}</td>
+              <td class="prev">${p ? `${fmt(+p.kg || 0)}×${+p.reps || 0}` : '–'}${up && up.up ? '<em class="upb">↑</em>' : ''}</td>
               <td><input inputmode="decimal" data-f="kg" value="${esc(s.kg)}" placeholder="${ph && ph.kg != null ? fmt(+ph.kg || 0) : 'kg'}"></td>
               <td><input inputmode="numeric" data-f="reps" value="${esc(s.reps)}" placeholder="${ph ? +ph.reps || 0 : '0'}"></td>
               <td><button class="ok" data-ok>✓</button></td></tr>`;
@@ -483,6 +549,7 @@
         ${ring(done, target)}
         <div class="week-t"><h3>${done >= target ? 'Viikon tavoite täynnä!' : `${done}/${target} tällä viikolla`}</h3><p>${st ? `🔥 ${st} viikon putki` : msg}</p><div class="days">${days}</div></div>
       </div>
+      ${weightCard()}${progressCard()}
       ${needBackup ? '<button class="banner warn" data-backup><b>Ota varmuuskopio</b><span>Tiedot ovat vain tässä puhelimessa.</span><i>Vie →</i></button>' : ''}
       <div class="quick">
         <button data-go="muscles"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5"/><path d="M6 9h12M12 9v6m0 0-3 6m3-6 3 6"/></svg>Etsi liike</button>
@@ -495,6 +562,11 @@
     if (t.closest('#obOpen')) return openOnboard();
     if (t.closest('[data-go]')) return go(t.closest('[data-go]').dataset.go);
     if (t.closest('[data-backup]')) return exportData();
+    if (t.closest('[data-weigh]')) {
+      const v = parseFloat(String(prompt('Paino tänään (kg)', lastWeight() ? fmt(lastWeight()) : '') || '').replace(',', '.'));
+      if (v > 20 && v < 400) { S.bodyLog.push({ ts: Date.now(), kg: v }); if (S.profile) S.profile.weightKg = v; save(); renderHome(); toast('Paino kirjattu'); }
+      return;
+    }
     const tg = t.closest('[data-toggle]'); if (tg) { const k = tg.dataset.toggle === 'list' ? 'showList' : 'showPick'; ui[k] = !ui[k]; return renderHome(); }
     const pk = t.closest('[data-pick]'); if (pk) { ui.pick = pk.dataset.pick; ui.showPick = false; return renderHome(); }
     const sb = t.closest('[data-start]'); if (sb) { const tp = findTpl(sb.dataset.start); if (tp) startTemplate(tp); return; }
@@ -526,6 +598,14 @@
         <label class="fld"><span>Pituus (cm) <i>vapaaehtoinen</i></span><input name="heightCm" inputmode="numeric" value="${esc(p.heightCm || '')}"></label>
         <label class="fld"><span>Paino (kg) <i>vapaaehtoinen</i></span><input name="weightKg" inputmode="decimal" value="${esc(p.weightKg || '')}"></label>
       </div>
+      <label class="fld"><span>Syntymävuosi <i>vapaaehtoinen, kaloriarviota varten</i></span><input name="birthYear" inputmode="numeric" maxlength="4" value="${esc(p.birthYear || '')}"></label>
+      <fieldset><legend>Tavoitetilat <i class="lg-i">kytke päälle tarvittaessa</i></legend>
+        <label class="sw"><input type="checkbox" name="gProgress" ${S.goals && S.goals.progress ? 'checked' : ''}><span></span><b>Nosta painoja joka viikko</b><small>Sovellus ehdottaa lisää painoa, kun olet tehnyt kaikki toistot.</small></label>
+        <label class="sw"><input type="checkbox" name="gLoss" ${S.goals && S.goals.weightLoss ? 'checked' : ''}><span></span><b>Painonpudotus</b><small>Painon seuranta, tavoite ja suuntaa-antava kaloriarvio.</small></label>
+        <div class="two loss-f">
+          <label class="fld"><span>Tavoitepaino (kg)</span><input name="targetKg" inputmode="decimal" value="${esc((S.goals && S.goals.weightLoss && S.goals.weightLoss.targetKg) || '')}"></label>
+          <label class="fld"><span>Tahti</span><select name="pace">${[.25, .5, .75].map(v => `<option value="${v}" ${((S.goals && S.goals.weightLoss && +S.goals.weightLoss.pace) || .5) === v ? 'selected' : ''}>${fmt(v)} kg / viikko</option>`).join('')}</select></label>
+        </div></fieldset>
       <p class="note">Tiedot tallentuvat vain tähän laitteeseen. Ohjelma muodostetaan tavoitteen, kokemuksen, treenipäivien ja välineiden mukaan.</p>
       <button class="cta" type="submit">${submit}</button></form>`;
   }
@@ -533,9 +613,10 @@
     const d = new FormData(f), num = k => { const v = parseFloat(String(d.get(k) || '').replace(',', '.')); return v > 0 ? v : null; };
     const old = S.profile || {};
     const p = { v: 1, name: String(d.get('name') || '').trim(), sex: d.get('sex') || 'male', goal: d.get('goal'), level: d.get('level'), daysPerWeek: +d.get('daysPerWeek'),
-      equipment: d.get('equipment'), heightCm: num('heightCm'), weightKg: num('weightKg'), created: old.created || Date.now(), updated: Date.now() };
+      equipment: d.get('equipment'), heightCm: num('heightCm'), weightKg: num('weightKg'), birthYear: (n => n > 1900 && n < 2020 ? n : null)(+d.get('birthYear')), created: old.created || Date.now(), updated: Date.now() };
     if (p.weightKg && p.weightKg !== old.weightKg) S.bodyLog.push({ ts: Date.now(), kg: p.weightKg });
     S.theme = d.get('theme') || 'auto'; applyTheme();
+    S.goals = { progress: !!d.get('gProgress'), weightLoss: d.get('gLoss') ? { targetKg: num('targetKg'), pace: +d.get('pace') || .5 } : null };
     if (p.goal !== old.goal) S.rest = (Programs.GOALS[p.goal] || {}).rest || S.rest;
     S.profile = p; ui.pick = null; save(); renderAvatar(); renderHome(); renderMap();
   }
