@@ -4,7 +4,7 @@
   const DB_URL = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
   const IMG = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
   const KEY = 'treeni.v1'; // avain pidetään samana, jotta vanhat tiedot säilyvät
-  const VERSION = '3.1';
+  const VERSION = '3.2';
   const PAGE = 30;
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -15,8 +15,9 @@
      profile = { v, name, sex, birthYear, goal, level, daysPerWeek, equipment, heightCm, weightKg, created, updated }
      bodyLog = [{ ts, kg }]   templates = [{ id, name, items: [{ id, sets, reps }] }]
      history = [{ start, end, templateId, name, items: [{ id, sets: [{ kg, reps }] }] }] */
-  let S = { schema: 2, active: null, history: [], rest: 90, favs: [], profile: null, bodyLog: [], templates: [], lastBackup: 0 };
+  let S = { schema: 2, active: null, history: [], rest: 90, favs: [], profile: null, bodyLog: [], templates: [], lastBackup: 0, notes: {}, diary: [] };
   try { S = Object.assign(S, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) {}
+  S.notes = S.notes || {}; S.diary = S.diary || [];
   const save = () => { if (typeof DEMO !== 'undefined' && DEMO) return; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
   // Esittelytila (#esittely): esimerkkitiedot muistiin, ei tallenneta laitteelle
   const DEMO = /esittely/.test(location.hash);
@@ -209,6 +210,19 @@
     }));
     return { maxKg, maxKgReps, best, mostReps, vol };
   }
+  // Viimeisin kerta liikkeellä: sarjat ja sen kerran muistiinpano
+  function lastEntry(id) {
+    for (let i = S.history.length - 1; i >= 0; i--) {
+      const it = S.history[i].items.find(x => x.id === id);
+      if (it) return { start: S.history[i].start, sets: it.sets, note: it.note || '' };
+    }
+    return null;
+  }
+  function summarize(sets) {
+    if (!sets.length) return '';
+    const kg = Math.max(...sets.map(x => +x.kg || 0)), same = sets.every(x => +x.reps === +sets[0].reps);
+    return `${sets.length} × ${same ? sets[0].reps : sets.map(x => x.reps).join('/')}${kg ? ` @ ${fmt(kg)} kg` : ''}`;
+  }
   function lastSets(id) {
     for (let i = S.history.length - 1; i >= 0; i--) {
       const it = S.history[i].items.find(x => x.id === id);
@@ -228,7 +242,7 @@
         <button class="x" data-fav="${esc(id)}" aria-label="Suosikki">${S.favs.includes(id) ? '★' : '☆'}</button>
         <button class="x" data-close aria-label="Sulje">✕</button></div>
       <div class="anim" id="mqBox"></div>
-      <div class="anim-bar"><span>Punainen = kohdelihas. Hahmo näyttää liikkeen suunnan.</span>${(e.images || []).length ? '<button class="linkbtn2" data-photos>Valokuvat</button>' : ''}</div>
+      <div class="anim-bar"><span>Pyöritä sormella · napauta pysäyttääksesi · punainen = kohdelihas</span>${(e.images || []).length ? '<button class="linkbtn2" data-photos>Valokuvat</button>' : ''}</div>
       <div class="tabs2">
         <button data-tab="info" class="${tab === 'info' ? 'on' : ''}">Tietoa</button>
         <button data-tab="hist" class="${tab === 'hist' ? 'on' : ''}">Historia</button>
@@ -241,7 +255,7 @@
       card.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
       if (t === 'info') {
         pane.innerHTML = `
-          ${quickHow(e)}
+          ${quickHow(e)}${S.notes[e.id] ? `<p class="memo-show">📌 ${esc(S.notes[e.id].text)}</p>` : ''}
           <h4>Kohdelihakset</h4>${Muscles.pair({ primary: e.primaryMuscles, secondary: sec, sex: bodySex() })}
           <div class="tags" style="margin-top:10px">${e.primaryMuscles.map(m => `<span class="tag p">${esc(mName(m))}</span>`).join('')}${sec.map(m => `<span class="tag">${esc(mName(m))}</span>`).join('')}</div>
           <h4>Tiedot</h4><div class="tags"><span class="tag">${esc(eqName(e.equipment))}</span><span class="tag">${esc(FI.level[e.level] || e.level)}</span>${FI.names[e.id] ? `<span class="tag">${esc(e.name)}</span>` : ''}</div>
@@ -433,6 +447,12 @@
         const e = BY.get(it.id); const prev = lastSets(it.id);
         return `<div class="ex" data-xi="${xi}">
           <div class="ex-h"><span class="th">${thumb(e)}</span><div class="nm" data-ex="${esc(it.id)}">${esc(e ? nameOf(e) : it.id)}${it.reps ? `<small>Tavoite ${it.sets.length} × ${esc(it.reps)}</small>` : ''}</div><button data-rmex="${xi}" aria-label="Poista liike">✕</button></div>
+          ${(() => { const le = lastEntry(it.id), pn = S.notes[it.id]; return `
+          <div class="memo">
+            <label class="memo-p"><span>📌</span><input data-pnote="${esc(it.id)}" value="${esc(pn ? pn.text : '')}" placeholder="Pysyvä muistiinpano, esim. penkin korkeus tai ote" maxlength="140"></label>
+            ${le ? `<p class="memo-l">Viimeksi ${date(le.start)}: <b>${esc(summarize(le.sets))}</b>${le.note ? ` · ”${esc(le.note)}”` : ''}</p>` : ''}
+            <input class="memo-t" data-inote="${xi}" value="${esc(it.note || '')}" placeholder="Muistiinpano tähän kertaan" maxlength="140">
+          </div>`; })()}
           <table class="sets"><thead><tr><th>Sarja</th><th>Edellinen</th><th>kg</th><th>Toistot</th><th>✓</th></tr></thead><tbody>
           ${it.sets.map((s, si) => {
             const p = prev[si];
@@ -440,7 +460,7 @@
             let ph = p || (b && b.reps ? b : null) || (it.reps ? { kg: null, reps: parseInt(it.reps, 10) } : null); // ehdotus: viime kerta, edellinen sarja tai tavoite
             const up = p && progressOn() ? nextLoad(it, prev, e) : null; // tavoitetila: nosta painoja
             if (up) ph = up;
-            return `<tr class="${s.done ? 'done' : ''}" data-si="${si}">
+            return `<tr class="${s.done ? 'done' : ''} ${ui.pop === xi + '-' + si ? 'pop' : ''}" data-si="${si}">
               <td class="n">${si + 1}</td>
               <td class="prev">${p ? `${fmt(+p.kg || 0)}×${+p.reps || 0}` : '–'}${up && up.up ? '<em class="upb">↑</em>' : ''}</td>
               <td><input inputmode="decimal" data-f="kg" value="${esc(s.kg)}" placeholder="${ph && ph.kg != null ? fmt(+ph.kg || 0) : 'kg'}"></td>
@@ -450,11 +470,12 @@
           </tbody></table>
           <button class="addset" data-addset="${xi}">+ Lisää sarja</button></div>`;
       }).join('')}
+      <label class="wo-note"><span>Treenin muistiinpano</span><textarea id="woNote" rows="2" maxlength="400" placeholder="Miltä treeni tuntui? Kipuja, energiaa, muuta muistettavaa">${esc(S.active.note || '')}</textarea></label>
       <button class="cta alt" data-go="muscles">+ Lisää liike</button>
       <button class="cta alt" id="saveTpl">Tallenna pohjaksi</button>
       <button class="cta" id="finish">${finishArmed ? 'Vahvista: tallenna ja lopeta' : 'Lopeta treeni'}</button>
       <button class="cta alt" id="discard" style="color:var(--danger)">Hylkää treeni</button>`;
-    tickElapsed();
+    tickElapsed(); ui.pop = null;
     hydrate3d(box);
   }
   function tickElapsed() {
@@ -466,6 +487,11 @@
   setInterval(tickElapsed, 1000);
 
   $('#workout').addEventListener('input', ev => {
+    const pn = ev.target.closest('[data-pnote]');
+    if (pn) { const v = pn.value.trim(); if (v) S.notes[pn.dataset.pnote] = { text: v, ts: Date.now() }; else delete S.notes[pn.dataset.pnote]; save(); return; }
+    const inn = ev.target.closest('[data-inote]');
+    if (inn) { S.active.items[+inn.dataset.inote].note = inn.value; save(); return; }
+    if (ev.target.id === 'woNote') { S.active.note = ev.target.value; save(); return; }
     const inp = ev.target.closest('input[data-f]'); if (!inp) return;
     const xi = +inp.closest('[data-xi]').dataset.xi, si = +inp.closest('[data-si]').dataset.si;
     S.active.items[xi].sets[si][inp.dataset.f] = inp.value.replace(',', '.'); save();
@@ -485,6 +511,9 @@
         if (!s.reps && ir.placeholder !== '0') s.reps = ir.placeholder;
         if (!(+s.reps > 0)) { toast('Lisää toistot ensin'); return; }
         s.done = true; startRest();
+        const best = recordsFor(S.active.items[xi].id).best, now = e1rm(+s.kg || 0, +s.reps || 0);
+        if (best > 0 && now > best + .01) { toast('Uusi ennätys! 🏆'); confetti(); if (navigator.vibrate) navigator.vibrate([30, 40, 30]); }
+        ui.pop = xi + '-' + si;
       } else s.done = false;
       save(); renderWorkout(); return;
     }
@@ -497,8 +526,8 @@
     if (t.id === 'finish') {
       if (!finishArmed) { finishArmed = true; renderWorkout(); setTimeout(() => { finishArmed = false; if (ui.view === 'workout') renderWorkout(); }, 4000); return; }
       finishArmed = false;
-      const items = S.active.items.map(i => ({ id: i.id, sets: i.sets.filter(s => s.done).map(s => ({ kg: +s.kg || 0, reps: +s.reps || 0 })) })).filter(i => i.sets.length);
-      if (items.length) { S.history.push({ start: S.active.start, end: Date.now(), templateId: S.active.templateId || null, name: S.active.name || null, items }); toast('Treeni tallennettu 💪'); }
+      const items = S.active.items.map(i => Object.assign({ id: i.id, sets: i.sets.filter(s => s.done).map(s => ({ kg: +s.kg || 0, reps: +s.reps || 0 })) }, i.note ? { note: i.note.trim() } : {})).filter(i => i.sets.length);
+      if (items.length) { S.history.push(Object.assign({ start: S.active.start, end: Date.now(), templateId: S.active.templateId || null, name: S.active.name || null, items }, S.active.note ? { note: S.active.note.trim() } : {})); toast('Treeni tallennettu 💪'); confetti(); }
       else toast('Ei tehtyjä sarjoja, treeniä ei tallennettu');
       S.active = null; stopRest(); save(); renderWorkout(); renderHistory(); renderHome(); go('home'); return;
     }
@@ -553,7 +582,7 @@
       ${prs.length ? `<h3 class="section-t">Ennätykset</h3><div class="prs">${prs.map(x => `<button class="pr" data-ex="${esc(x.id)}" style="text-align:left;width:100%">${esc(BY.get(x.id) ? nameOf(BY.get(x.id)) : x.id)} <b>${fmt(x.r.maxKg)} kg × ${x.r.maxKgReps}</b></button>`).join('')}</div>` : ''}
       <h3 class="section-t">Treenit</h3>
       ${S.history.slice().reverse().map(w => `<div class="hist"><div class="d">${date(w.start)} <span>${dur(w.end - w.start)}</span></div>
-        ${w.name ? `<div class="wn">${esc(w.name)}</div>` : ''}<ul>${w.items.map(i => `<li>${esc(BY.get(i.id) ? nameOf(BY.get(i.id)) : i.id)}: ${i.sets.map(s => `${fmt(s.kg)}×${s.reps}`).join(', ')}</li>`).join('')}</ul></div>`).join('')}`;
+        ${w.name ? `<div class="wn">${esc(w.name)}</div>` : ''}${w.note ? `<p class="hnote">${esc(w.note)}</p>` : ''}<ul>${w.items.map(i => `<li>${esc(BY.get(i.id) ? nameOf(BY.get(i.id)) : i.id)}: ${i.sets.map(s => `${fmt(s.kg)}×${s.reps}`).join(', ')}</li>`).join('')}</ul></div>`).join('')}`;
   }
 
   /* ---------- Viikot ja putki ---------- */
@@ -748,6 +777,77 @@
     } catch (e) { toast('Tiedostoa ei voitu lukea'); }
   });
 
+  /* ---------- Konfetti (ennätys, treeni valmis) ---------- */
+  function confetti() {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const c = document.createElement('canvas'), x = c.getContext('2d'), W = c.width = innerWidth * 2, H = c.height = innerHeight * 2;
+    c.className = 'confetti'; document.body.appendChild(c);
+    const cols = ['#B7EF14', '#D9412E', '#FFFFFF', '#4E6A06', '#F2A08F'];
+    const P = Array.from({ length: 140 }, () => ({ x: W / 2, y: H * .55, vx: (Math.random() - .5) * 34, vy: -Math.random() * 38 - 14, r: Math.random() * 6.28, vr: (Math.random() - .5) * .4, w: 8 + Math.random() * 10, h: 5 + Math.random() * 6, c: cols[Math.random() * cols.length | 0] }));
+    const t0 = performance.now();
+    (function f(now) {
+      const t = now - t0; x.clearRect(0, 0, W, H);
+      P.forEach(p => { p.vy += 1.1; p.vx *= .985; p.x += p.vx; p.y += p.vy; p.r += p.vr; x.save(); x.translate(p.x, p.y); x.rotate(p.r); x.globalAlpha = Math.max(0, 1 - t / 2200); x.fillStyle = p.c; x.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); x.restore(); });
+      if (t < 2200) requestAnimationFrame(f); else c.remove();
+    })(t0);
+    setTimeout(() => c.remove(), 3000);
+  }
+
+  /* ---------- Lisää-valikko ja päiväkirja ---------- */
+  const MOODS = ['😫', '😕', '😐', '🙂', '🤩'];
+  function openMore() {
+    const card = $('#sheetCard');
+    card.innerHTML = `<div class="sheet-top"><h3>Lisää</h3><button class="x" data-close aria-label="Sulje">✕</button></div>
+      <div class="pane menu">
+        <button data-m="diary"><i>📓</i><span><b>Päiväkirja</b><small>Fiilis, uni ja muistiinpanot päivittäin</small></span></button>
+        <button data-m="notes"><i>📌</i><span><b>Liikkeiden muistiinpanot</b><small>Penkin korkeudet, otteet ja muut pysyvät muistiinpanot</small></span></button>
+        <button data-m="profile"><i>🎯</i><span><b>Profiili ja tavoitteet</b><small>Tavoite, treenipäivät, painonpudotus, teema</small></span></button>
+        <button data-m="backup"><i>💾</i><span><b>Varmuuskopio</b><small>Vie tai tuo tietosi tiedostona</small></span></button>
+        <button data-m="about"><i>ℹ️</i><span><b>Tietoa sovelluksesta</b><small>TREENI ${VERSION}</small></span></button>
+      </div>`;
+    $('#sheet').hidden = false;
+    card.querySelector('.menu').addEventListener('click', ev => {
+      const b = ev.target.closest('[data-m]'); if (!b) return;
+      const m = b.dataset.m;
+      if (m === 'diary') openDiary();
+      else if (m === 'notes') openNotes();
+      else if (m === 'profile' || m === 'backup') openProfile();
+      else if (m === 'about') { card.querySelector('.pane').innerHTML = `<p>TREENI ${VERSION} on suomenkielinen treenipäiväkirja. Tiedot tallentuvat vain tähän laitteeseen.</p><p class="note">Liikkeiden tiedot: free-exercise-db (Unlicense). 3D-ihmismallit: Quaternius (CC0). Animaatiot, lihaskartta ja suomennokset on tehty tätä sovellusta varten.</p>`; }
+    });
+  }
+  function openDiary(q = '') {
+    const card = $('#sheetCard');
+    const today = new Date().toDateString(), cur = S.diary.find(d => new Date(d.ts).toDateString() === today) || {};
+    const list = S.diary.slice().reverse().filter(d => !q || (d.text || '').toLowerCase().includes(q.toLowerCase()));
+    card.innerHTML = `<div class="sheet-top"><h3>Päiväkirja</h3><button class="x" data-close aria-label="Sulje">✕</button></div>
+      <div class="pane diary">
+        <form id="dForm">
+          <p class="d-q">Miltä tänään tuntuu?</p>
+          <div class="moods">${MOODS.map((m, i) => `<label><input type="radio" name="mood" value="${i + 1}" ${cur.mood === i + 1 ? 'checked' : ''}><span>${m}</span></label>`).join('')}</div>
+          <div class="two"><label class="fld"><span>Uni (tuntia)</span><input name="sleep" inputmode="decimal" value="${esc(cur.sleep || '')}"></label>
+          <label class="fld"><span>Energia</span><select name="energy">${['', 'Matala', 'Normaali', 'Korkea'].map(v => `<option ${cur.energy === v ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
+          <label class="fld"><span>Muistiinpano</span><textarea name="text" rows="3" maxlength="600" placeholder="Mitä tänään tapahtui? Kipuja, ruoka, palautuminen…">${esc(cur.text || '')}</textarea></label>
+          <button class="cta" type="submit">Tallenna päivä</button>
+        </form>
+        <input class="d-search" id="dSearch" type="search" placeholder="Hae päiväkirjasta" value="${esc(q)}">
+        ${list.length ? list.map(d => `<div class="d-item"><span class="d-m">${MOODS[(d.mood || 3) - 1]}</span><div><b>${date(d.ts)}</b>${d.sleep ? ` · uni ${fmt(+d.sleep)} h` : ''}${d.energy ? ` · ${esc(d.energy)}` : ''}<p>${esc(d.text || '')}</p></div></div>`).join('') : '<p class="empty small">Ei vielä merkintöjä. Ensimmäinen merkintä syntyy, kun tallennat päivän.</p>'}
+      </div>`;
+    $('#sheet').hidden = false;
+    $('#dForm', card).addEventListener('submit', ev => {
+      ev.preventDefault(); const d = new FormData(ev.target);
+      const e = { ts: cur.ts || Date.now(), mood: +d.get('mood') || null, sleep: parseFloat(String(d.get('sleep') || '').replace(',', '.')) || null, energy: d.get('energy') || '', text: String(d.get('text') || '').trim() };
+      S.diary = S.diary.filter(x => x !== cur); S.diary.push(e); S.diary.sort((a, b) => a.ts - b.ts); save(); toast('Päivä tallennettu'); openDiary();
+    });
+    $('#dSearch', card).addEventListener('change', ev => openDiary(ev.target.value));
+  }
+  function openNotes() {
+    const card = $('#sheetCard'), ids = Object.keys(S.notes);
+    card.innerHTML = `<div class="sheet-top"><h3>Liikkeiden muistiinpanot</h3><button class="x" data-close aria-label="Sulje">✕</button></div>
+      <div class="pane">${ids.length ? ids.map(id => `<button class="d-item nbtn" data-ex="${esc(id)}"><span class="d-m">📌</span><div><b>${esc(BY.get(id) ? nameOf(BY.get(id)) : (FI.names[id] || id))}</b><p>${esc(S.notes[id].text)}</p></div></button>`).join('')
+        : '<p class="empty small">Kirjoita pysyvä muistiinpano treenin aikana liikkeen kohdalle (📌). Se näkyy aina, kun teet saman liikkeen.</p>'}</div>`;
+    $('#sheet').hidden = false;
+  }
+
   /* ---------- Teema ---------- */
   function applyTheme() {
     const t = S.theme || 'auto', r = document.documentElement;
@@ -768,7 +868,10 @@
     window.scrollTo(0, 0);
     setTimeout(() => hydrate3d($('#view-' + v)), 30);
   }
-  document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
+  document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+    b.classList.remove('bump'); void b.offsetWidth; b.classList.add('bump');
+    b.dataset.more !== undefined ? openMore() : go(b.dataset.view);
+  }));
 
   /* ---------- Käynnistys ---------- */
   // Linkillä voi esivalita lihakset, esim. #m=chest,shoulders

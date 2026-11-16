@@ -92,20 +92,54 @@ function paint(M, primary, secondary) {
   if (!mesh.material.userData.hl) {
     // Oma värjäys: ihon väri sekoittuu limenvihreään painon mukaan (ei kerrota tekstuuria)
     mesh.material.vertexColors = true;
-    // Anatomiatyyli: iho vaaleanharmaaksi, lihasten muodot korostetusti esiin, kohdelihakset punaisiksi,
-    // reunat tummuvat kuin piirroksen ääriviivat.
-    if (mesh.material.normalScale) mesh.material.normalScale.set(2.2, 2.2);
-    mesh.material.roughness = .72;
+    // Läpinäkyvä anatomiatyyli: kuultava lasimainen iho, sen alla lihakset säikeineen ja raajoissa verisuonet.
+    // Kohdelihakset hehkuvat punaisina. Kuviot lasketaan lepoasennon koordinaateista, joten ne liikkuvat vartalon mukana.
+    if (mesh.material.normalScale) mesh.material.normalScale.set(2.4, 2.4);
+    mesh.material.roughness = .55;
+    mesh.material.transparent = true; mesh.material.depthWrite = true;
+    const NOISE = `
+varying vec3 vBind;
+float h3(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float vnoise(vec3 x){ vec3 i = floor(x); vec3 f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(h3(i), h3(i + vec3(1,0,0)), f.x), mix(h3(i + vec3(0,1,0)), h3(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(h3(i + vec3(0,0,1)), h3(i + vec3(1,0,1)), f.x), mix(h3(i + vec3(0,1,1)), h3(i + vec3(1,1,1)), f.x), f.y), f.z); }
+`;
     mesh.material.onBeforeCompile = sh => {
-      sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>',
-        'float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114)); ' +
-        'diffuseColor.rgb = vec3(lum) * vec3(1.0, 0.99, 0.97) * 1.55 + 0.06; ' +
-        'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.20, 0.13), clamp(vColor.r, 0.0, 1.0) * 0.88); ' +
-        'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95, 0.55, 0.42), clamp(vColor.g, 0.0, 1.0) * 0.55);')
-      .replace('#include <opaque_fragment>',
-        'float rimF = pow(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 3.0); ' +
-        'outgoingLight *= 1.0 - rimF * 0.6;\n' +
-        '#include <opaque_fragment>');
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vBind;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBind = position;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + NOISE)
+        .replace('#include <color_fragment>', `
+  vec3 P = vBind;
+  float head = smoothstep(1.47, 1.56, P.y);
+  // Lihassäikeet: pitkänomaista kohinaa (venytetty pystysuuntaan), ei säännöllisiä raitoja
+  float f1 = vnoise(vec3(P.x * 160.0, P.y * 9.0, P.z * 160.0));
+  float f2 = vnoise(vec3(P.x * 320.0 + 3.1, P.y * 16.0, P.z * 320.0));
+  float fib = smoothstep(0.35, 0.95, f1 * 0.65 + f2 * 0.35) * (1.0 - head);
+  // Verisuonet: kohinan tasa-arvokäyrät raajoissa
+  float vn = vnoise(P * 6.5) * 0.65 + vnoise(P * 14.0) * 0.35;
+  float vein = 1.0 - smoothstep(0.0, 0.022, abs(vn - 0.5));
+  float vn2 = vnoise(P * 11.0 + 7.3);
+  vein = max(vein, (1.0 - smoothstep(0.0, 0.015, abs(vn2 - 0.5))) * 0.6);
+  float limb = clamp(smoothstep(0.13, 0.2, abs(P.x)) + 1.0 - smoothstep(0.62, 0.8, P.y), 0.0, 1.0);
+  vein *= limb * (1.0 - head);
+  float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+  float cloth = 1.0 - smoothstep(0.06, 0.16, lum);
+  vec3 tissue = mix(vec3(0.42, 0.40, 0.42), vec3(0.74, 0.71, 0.72), smoothstep(0.12, 0.6, lum));
+  tissue = mix(tissue, vec3(0.72, 0.66, 0.64), head * 0.7);
+  tissue *= 1.0 - fib * 0.28;
+  float tr = clamp(vColor.r, 0.0, 1.0), ts = clamp(vColor.g, 0.0, 1.0);
+  vec3 red = mix(vec3(1.0, 0.10, 0.05), vec3(0.62, 0.02, 0.02), fib * 0.8);
+  vec3 col = mix(tissue, red * (0.75 + 0.5 * smoothstep(0.1, 0.6, lum)), tr);
+  col = mix(col, mix(vec3(0.96, 0.50, 0.40), vec3(0.70, 0.30, 0.25), fib) , ts * 0.65);
+  col = mix(col, vec3(0.22, 0.30, 0.72), vein * 0.75 * (1.0 - tr * 0.6));
+  col = mix(col, vec3(0.45, 0.02, 0.06), vein * 0.7 * tr);
+  diffuseColor.rgb = mix(col, diffuseColor.rgb * 0.5 + 0.03, cloth);
+`).replace('#include <opaque_fragment>', `
+  float rimF = pow(1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition))), 3.0);
+  outgoingLight = mix(outgoingLight, vec3(0.80, 0.95, 0.82), rimF * 0.42);
+  outgoingLight += vec3(0.75, 0.04, 0.02) * clamp(vColor.r, 0.0, 1.0) * 0.38;
+  diffuseColor.a = 1.0 - rimF * 0.45;
+#include <opaque_fragment>`);
     };
     mesh.material.userData.hl = true; mesh.material.needsUpdate = true;
   }
@@ -205,9 +239,18 @@ const MAT = {
   metal: new THREE.MeshStandardMaterial({ color: 0x9aa0a8, metalness: .8, roughness: .3 }),
   black: new THREE.MeshStandardMaterial({ color: 0x1d1f22, metalness: .1, roughness: .7 }),
   pad: new THREE.MeshStandardMaterial({ color: 0x2b2e33, metalness: 0, roughness: .8 }),
-  mat: new THREE.MeshStandardMaterial({ color: 0x9aa3ad, roughness: .95 }),
+  mat: new THREE.MeshStandardMaterial({ color: 0x2c4a10, roughness: .9 }),
+  matEdge: new THREE.MeshStandardMaterial({ color: 0x24400a, roughness: .9 }),
   cable: new THREE.MeshBasicMaterial({ color: 0x222222 })
 };
+function radTex(stops) {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+  const gr = x.createRadialGradient(128, 128, 0, 128, 128, 128); stops.forEach(([o, col]) => gr.addColorStop(o, col));
+  x.fillStyle = gr; x.fillRect(0, 0, 256, 256); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+let _glow, _shadow;
+const glowTex = () => _glow || (_glow = radTex([[0, 'rgba(183,239,20,.55)'], [.35, 'rgba(110,170,20,.22)'], [1, 'rgba(0,0,0,0)']]));
+const shadowTex = () => _shadow || (_shadow = radTex([[0, 'rgba(0,0,0,.45)'], [.6, 'rgba(0,0,0,.15)'], [1, 'rgba(0,0,0,0)']]));
 function cyl(r, len, mat, axis = 'x') {
   const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 24), mat);
   if (axis === 'x') m.rotation.z = Math.PI / 2; if (axis === 'z') m.rotation.x = Math.PI / 2;
@@ -241,9 +284,14 @@ function buildStatic(M, a, scene, A0) {
   // Kiinteät välineet sijoitetaan alkuasennon perusteella
   const g = new THREE.Group(); scene.add(g);
   const P = n => A0[n];
-  const floor = new THREE.Mesh(new THREE.CircleGeometry(1.6, 48), new THREE.MeshStandardMaterial({ color: 0x000000, transparent: true, opacity: .07 }));
-  floor.rotation.x = -Math.PI / 2; floor.position.set(0, .001, P('pelvis').z); g.add(floor);
-  if (a.floor === 'mat') { const m = box(.62, .012, 1.9, MAT.mat); m.position.set(0, .006, P('pelvis').z); g.add(m); }
+  const spot = new THREE.Mesh(new THREE.CircleGeometry(1.8, 64), new THREE.MeshBasicMaterial({ map: glowTex(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  spot.rotation.x = -Math.PI / 2; spot.position.set(0, .002, P('pelvis').z); g.add(spot);
+  const shade = new THREE.Mesh(new THREE.CircleGeometry(.75, 48), new THREE.MeshBasicMaterial({ map: shadowTex(), transparent: true, depthWrite: false }));
+  shade.rotation.x = -Math.PI / 2; shade.scale.set(1, 1.6, 1); shade.position.set(0, .003, P('pelvis').z); g.add(shade);
+  if (a.floor === 'mat') {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(.7, .02, 1.95), [MAT.matEdge, MAT.matEdge, MAT.mat, MAT.matEdge, MAT.matEdge, MAT.matEdge]);
+    m.position.set(0, .01, P('pelvis').z); g.add(m);
+  }
   if (a.bench || a.prop === 'bench') {
     const sup = Math.min(P('pelvis').y, P('spine_03').y) - .11;
     if (a.bench === 'incline') {
@@ -302,12 +350,13 @@ async function setup(ex, sex, w, h) {
   paint(M, ex.primaryMuscles || [], ex.secondaryMuscles || []);
   if (!renderer) {
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-    renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+    renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = .95;
   }
   const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f96, 1.5));
-  const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(-2, 3.5, 2.5); scene.add(key);
-  const rim = new THREE.DirectionalLight(0xffffff, .9); rim.position.set(2, 2, -3); scene.add(rim);
+  scene.add(new THREE.HemisphereLight(0xf2fff0, 0x1d2a12, 1.0));
+  const key = new THREE.DirectionalLight(0xffffff, 1.7); key.position.set(-2, 3.5, 2.5); scene.add(key);
+  const rim = new THREE.DirectionalLight(0xb7ef14, 2.2); scene.add(rim);
+  const rim2 = new THREE.PointLight(0x7fd12a, 3, 6); scene.add(rim2);
   scene.add(M.root);
 
   // Alkuasento: pudotus lattialle ja kiinnityspiste
@@ -341,9 +390,14 @@ async function setup(ex, sex, w, h) {
   const BACKM = ['hamstrings', 'glutes', 'lats', 'middle back', 'lower back', 'traps', 'triceps', 'calves'];
   if (BACKM.includes((ex.primaryMuscles || [])[0]) && !(lying && a.A.torso > 200)) dir.z = -dir.z;
   cam.position.copy(center).addScaledVector(dir, dist); cam.lookAt(center);
+  // Vihreä takavalo kameraa vastapäätä, valokeila lattialle
+  rim.position.copy(center).addScaledVector(dir, -3).add(new THREE.Vector3(0, 2.2, 0));
+  rim2.position.copy(center).addScaledVector(dir, -1.2).add(new THREE.Vector3(0, .4, 0));
   const frame = t => { place(t); props.dyn.forEach(f => f()); if (cable) cable(); renderer.render(scene, cam); };
   const dispose = () => { scene.remove(M.root); scene.traverse(o => { if (o.geometry) o.geometry.dispose(); }); };
-  return { a, frame, dispose };
+  // Kuvakulman kääntö (sormella pyöritys): kamera kiertää pystyakselin ympäri
+  const orbit = yaw => { cam.position.copy(center).addScaledVector(dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw), dist); cam.lookAt(center); };
+  return { a, frame, dispose, orbit };
 }
 
 // Pysäytyskuva (dataURL), esim. pikkukuviin ja tarkistukseen
@@ -363,9 +417,21 @@ export async function play(el, ex, sex) {
   renderer.setSize(w, h, false);
   el.innerHTML = ''; el.appendChild(renderer.domElement);
   renderer.domElement.className = 'h3d';
-  const dur = MQ.duration(S.a), t0 = performance.now();
+  const dur = MQ.duration(S.a) * (el.dataset.slow ? 2 : 1);
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const tick = now => { S.frame(reduce ? .45 : ((now - t0) % dur) / dur); if (!reduce) raf = requestAnimationFrame(tick); };
+  // Pyöritys vetämällä
+  let yaw = 0, drag = null, paused = false;
+  const cv = renderer.domElement;
+  cv.style.touchAction = 'pan-y';
+  cv.onpointerdown = e => { drag = { x: e.clientX, y0: yaw, moved: false }; cv.setPointerCapture(e.pointerId); };
+  cv.onpointermove = e => { if (!drag) return; const dx = e.clientX - drag.x; if (Math.abs(dx) > 4) drag.moved = true; yaw = drag.y0 + dx * .012; S.orbit(yaw); if (reduce || paused) S.frame(lastT); };
+  cv.onpointerup = () => { if (drag && !drag.moved) { paused = !paused; el.classList.toggle('paused', paused); } drag = null; };
+  let lastT = .45, tp = 0;
+  const tick = now => {
+    if (!paused) { tp += Math.min(50, now - (tick.prev || now)); lastT = reduce ? .45 : (tp % dur) / dur; }
+    tick.prev = now; S.frame(lastT);
+    if (!reduce || drag) raf = requestAnimationFrame(tick);
+  };
   raf = requestAnimationFrame(tick);
   current = { dispose: S.dispose };
 }
