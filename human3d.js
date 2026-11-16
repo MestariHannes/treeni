@@ -165,11 +165,11 @@ const frontDir = (deg, side) => { const r = deg * Math.PI / 180; return new THRE
 // Otteet: over = myötäote (kämmen poispäin kyynärvarren taivutussuunnasta), under = vastaote, neutral = kämmenet vastakkain,
 // flat = kämmen alas (punnerrus, lankku, tuki), forward = kämmenet eteen
 const GRIPS = {
-  over: ['bench', 'incline', 'dbbench', 'ohpress', 'seatpress', 'bentrow', 'deadlift', 'hinge', 'pullup', 'pulldown', 'skull', 'pushdown', 'upright', 'facepull', 'frontraise', 'invrow', 'legraise', 'squat', 'rollout', 'jump'],
+  over: ['hipthrust', 'bench', 'incline', 'dbbench', 'ohpress', 'seatpress', 'bentrow', 'deadlift', 'hinge', 'pullup', 'pulldown', 'skull', 'pushdown', 'upright', 'facepull', 'frontraise', 'invrow', 'legraise', 'rollout', 'jump'],
   under: ['curl', 'bbcurl', 'wristcurl'],
   neutral: ['dbrow', 'lunge', 'calf', 'swing', 'goblet', 'shrug', 'ohext', 'tkick', 'cablerow', 'lateral', 'reversefly', 'dip', 'stand', 'stretch', 'bwsquat'],
   flat: ['pushup', 'plank', 'climber', 'kickback', 'benchdip', 'bridge'],
-  forward: ['fly']
+  forward: ['fly', 'squat']
 };
 const gripOf = key => Object.keys(GRIPS).find(g => GRIPS[g].includes(key)) || null;
 const _pa = new THREE.Vector3(), _pb = new THREE.Vector3(), _pc = new THREE.Vector3();
@@ -196,20 +196,113 @@ function gripPoint(M, s) {
   const h = wp(M, 'hand_' + s), m1 = wp(M, 'middle_01_' + s);
   return h.clone().lerp(m1, .8).addScaledVector(palmNormal(M, s), .028);
 }
+// Kahden luun käänteiskinematiikka: käsi tiettyyn pisteeseen, kyynärpää kohti napavektoria
+function armIK(M, s, target, pole) {
+  const B = M.bones, S0 = wp(M, 'upperarm_' + s), E0 = wp(M, 'lowerarm_' + s), H0 = wp(M, 'hand_' + s);
+  const l1 = S0.distanceTo(E0), l2 = E0.distanceTo(H0);
+  const dv = target.clone().sub(S0); let d = dv.length(); d = Math.min(d, (l1 + l2) * .999); const dir = dv.normalize();
+  const a = (l1 * l1 - l2 * l2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+  const pp = pole.clone().sub(dir.clone().multiplyScalar(pole.dot(dir))).normalize();
+  const E = S0.clone().addScaledVector(dir, a).addScaledVector(pp, h);
+  aim(B['upperarm_' + s], B['lowerarm_' + s], E.clone().sub(S0).normalize());
+  const E1 = wp(M, 'lowerarm_' + s);
+  aim(B['lowerarm_' + s], B['hand_' + s], S0.clone().addScaledVector(dir, d).sub(E1).normalize());
+}
+// Takakyykyn tanko niskan takana: kädet tankoon
+function backBarIK(M, p) {
+  const n = wp(M, 'neck_01'), s3 = wp(M, 'spine_03'), back = sag(p.torso - 90);
+  const c = n.clone().lerp(s3, .3).addScaledVector(back, .1);
+  const pole = new THREE.Vector3(0, -1, 0).addScaledVector(back, .6).normalize();
+  armIK(M, 'r', c.clone().add(new THREE.Vector3(-.34, 0, 0)), pole.clone().add(new THREE.Vector3(-.4, 0, 0)));
+  armIK(M, 'l', c.clone().add(new THREE.Vector3(.34, 0, 0)), pole.clone().add(new THREE.Vector3(.4, 0, 0)));
+  M.bones.hand_r.updateMatrixWorld(true);
+}
+function hipBarIK(M, p) {
+  const front = sag(p.torso + 90), c = wp(M, 'pelvis').addScaledVector(front, .17).addScaledVector(sag(p.torso), .04);
+  armIK(M, 'r', c.clone().add(new THREE.Vector3(-.3, 0, 0)), new THREE.Vector3(-.6, .2, 0).add(sag(p.torso)).normalize());
+  armIK(M, 'l', c.clone().add(new THREE.Vector3(.3, 0, 0)), new THREE.Vector3(.6, .2, 0).add(sag(p.torso)).normalize());
+}
+/* ---------- Törmäykset: tanko / käsipaino ei saa mennä kehon sisään eikä lattian läpi ---------- */
+// Lähimmät pisteet kahden janan välillä (p1–q1 ja p2–q2)
+function segSeg(p1, q1, p2, q2) {
+  const d1 = q1.clone().sub(p1), d2 = q2.clone().sub(p2), r = p1.clone().sub(p2);
+  const a = d1.dot(d1), e = d2.dot(d2), f = d2.dot(r);
+  let s, t;
+  if (a < 1e-9 && e < 1e-9) { s = t = 0; }
+  else if (a < 1e-9) { s = 0; t = Math.min(1, Math.max(0, f / e)); }
+  else { const c = d1.dot(r); if (e < 1e-9) { t = 0; s = Math.min(1, Math.max(0, -c / a)); }
+    else { const b = d1.dot(d2), den = a * e - b * b; s = den > 1e-9 ? Math.min(1, Math.max(0, (b * f - c * e) / den)) : 0; t = (b * s + f) / e;
+      if (t < 0) { t = 0; s = Math.min(1, Math.max(0, -c / a)); } else if (t > 1) { t = 1; s = Math.min(1, Math.max(0, (b - c) / a)); } } }
+  return [p1.clone().addScaledVector(d1, s), p2.clone().addScaledVector(d2, t)];
+}
+function bodyCapsules(M) {
+  const P = n => wp(M, n), up = new THREE.Vector3(0, .1, 0);
+  return [
+    [P('pelvis'), P('spine_02'), .135], [P('spine_02'), P('neck_01'), .15], [P('Head'), P('Head').add(up), .12],
+    [P('thigh_l'), P('calf_l'), .085], [P('thigh_r'), P('calf_r'), .085], [P('calf_l'), P('foot_l'), .062], [P('calf_r'), P('foot_r'), .062]
+  ];
+}
+function resolveCollisions(M, a, p) {
+  const pr = a.prop || '';
+  const bar = pr === 'barbell' || pr === 'barbell@floor' || pr === 'barbellfront', db = pr === 'dumbbell' || pr === 'kettlebell';
+  if (!bar && !db) return;
+  const heavy = /squat|deadlift|hinge|bench|bentrow|hipthrust/.test(a.key || '') || pr !== 'barbell';
+  const plateR = bar ? (heavy && pr !== 'barbellfront' ? .225 : .11) : (pr === 'kettlebell' ? .19 : .06);
+  const halfLen = bar ? (heavy && pr !== 'barbellfront' ? .95 : .65) : .1;
+  const torsoFront = sag((p.torso ?? 0) + 90);
+  for (let it = 0; it < 4; it++) {
+    const caps = bodyCapsules(M), gl = gripPoint(M, 'l'), gr = gripPoint(M, 'r');
+    const pushes = { l: new THREE.Vector3(), r: new THREE.Vector3() };
+    const test = (A, B2, rad, key) => {
+      caps.forEach(([c1, c2, cr]) => {
+        const [pb, pc] = segSeg(A, B2, c1, c2), d = pb.distanceTo(pc), min = cr + rad + .012;
+        if (d < min) { const n = d > 1e-5 ? pb.clone().sub(pc).normalize() : torsoFront.clone(); key.forEach(k => pushes[k].addScaledVector(n, min - d)); }
+      });
+    };
+    if (bar) {
+      const c = gl.clone().add(gr).multiplyScalar(.5), dir = gr.clone().sub(gl).normalize();
+      test(c.clone().addScaledVector(dir, -halfLen), c.clone().addScaledVector(dir, halfLen), .02, ['l', 'r']);
+      const low = c.y - plateR; if (low < .004) { pushes.l.y += .004 - low; pushes.r.y += .004 - low; }
+    } else {
+      [['l', gl], ['r', gr]].forEach(([k, g]) => {
+        const ax = wp(M, 'index_01_' + k).sub(wp(M, 'pinky_01_' + k)).normalize();
+        test(g.clone().addScaledVector(ax, -halfLen), g.clone().addScaledVector(ax, halfLen), pr === 'kettlebell' ? .09 : .06, [k]);
+        const low = g.y - plateR; if (low < .004) pushes[k].y += .004 - low;
+      });
+    }
+    if (pushes.l.length() + pushes.r.length() < .002) break;
+    ['r', 'l'].forEach(k => {
+      if (pushes[k].lengthSq() < 1e-8) return;
+      const H = wp(M, 'hand_' + k).add(pushes[k]), E = wp(M, 'lowerarm_' + k), S0 = wp(M, 'upperarm_' + k);
+      armIK(M, k, H, E.sub(S0).normalize());
+    });
+  }
+}
+
 function applyGrip(M, a, p) {
-  const g = gripOf(a.key); if (!g) return;
-  [['r', -1], ['l', 1]].forEach(([s, m]) => {
-    let n;
+  if (a.prop === 'barbell@shoulder' && !a.front) backBarIK(M, p);
+  if (a.prop === 'barbell@hips') { hipBarIK(M, p); const g0 = gripOf(a.key); return; }
+  const g = gripOf(a.key);
+  const want = (s, m) => {
     if (a.front) {
       const d = frontDir(p.upper, m);
-      n = g === 'forward' ? new THREE.Vector3(0, 0, 1) : g === 'over' ? new THREE.Vector3(0, 0, -1) : new THREE.Vector3().crossVectors(d, new THREE.Vector3(0, 0, m));
-    } else if (g === 'over') n = sag(p.fore + 90);
-    else if (g === 'under') n = sag(p.fore - 90);
-    else if (g === 'neutral') n = new THREE.Vector3(-m, 0, 0);
-    else if (g === 'flat') n = new THREE.Vector3(0, -1, 0);
-    else n = new THREE.Vector3(0, 0, 1);
-    twistPalm(M, s, n);
-  });
+      return g === 'forward' ? new THREE.Vector3(0, 0, 1) : g === 'over' ? new THREE.Vector3(0, 0, -1) : new THREE.Vector3().crossVectors(d, new THREE.Vector3(0, 0, m));
+    }
+    if (g === 'over') return sag(p.fore + 90);
+    if (g === 'under') return sag(p.fore - 90);
+    if (g === 'neutral') return new THREE.Vector3(-m, 0, 0);
+    if (g === 'flat') return new THREE.Vector3(0, -1, 0);
+    return new THREE.Vector3(0, 0, 1);
+  };
+  if (a.front) { if (g) { twistPalm(M, 'r', want('r', -1)); twistPalm(M, 'l', want('l', 1)); } resolveCollisions(M, a, p); if (g) { twistPalm(M, 'r', want('r', -1)); twistPalm(M, 'l', want('l', 1)); } return; }
+  if (g) twistPalm(M, 'r', want('r', -1));
+  // Vasen käsi peilataan oikeasta: tanko pysyy vaakasuorassa ja liike on symmetrinen
+  const px = wp(M, 'pelvis').x, mir = v => new THREE.Vector3(2 * px - v.x, v.y, v.z);
+  const H = wp(M, 'hand_r'), E = wp(M, 'lowerarm_r');
+  armIK(M, 'l', mir(H), mir(E).sub(wp(M, 'upperarm_l')).normalize());
+  if (g) twistPalm(M, 'l', want('l', 1));
+  resolveCollisions(M, a, p);
+  if (g) { twistPalm(M, 'r', want('r', -1)); twistPalm(M, 'l', want('l', 1)); }
 }
 
 function pose(M, a, p) {
@@ -231,7 +324,7 @@ function pose(M, a, p) {
       aim(B['calf_' + s], B['foot_' + s], frontDir(leg, m));
       aim(B['foot_' + s], B['ball_' + s], sag(100, m * .25));
     });
-    grip(M); applyGrip(M, a, p);
+    if (gripOf(a.key) !== 'flat') grip(M); applyGrip(M, a, p);
     return;
   }
   const t = p.torso;
@@ -249,7 +342,7 @@ function pose(M, a, p) {
     aim(B['calf_' + s], B['foot_' + s], sag(sh, m * .03));
     aim(B['foot_' + s], B['ball_' + s], sag((ft ?? 90) + 14, m * .12));
   };
-  grip(M); applyGrip(M, a, p);
+  if (gripOf(a.key) !== 'flat') grip(M); applyGrip(M, a, p);
   leg('r', -1, p.thigh, p.shin, p.foot);
   leg('l', 1, p.thigh2 ?? p.thigh, p.shin2 ?? p.shin, p.foot2 ?? p.foot);
 }
@@ -280,6 +373,7 @@ function dropY(M, a) {
   // Roikkuu tangossa tai nojaa dippitelineeseen: jalat irti lattiasta
   if (A.anchor === 'hands' && ((a.prop === 'bar' && A.at[1] < 80) || a.prop === 'bars')) return .12 - Math.min(feet(), y('calf_l') - .05, y('calf_r') - .05);
   if (a.seat === 'low') return .4 - y('pelvis');
+  if (a.bench === 'shoulder') return .5 - y('spine_03');
   if (a.bench || a.seat || A.anchor === 'hip' && a.prop === 'bench' || a.prop === 'hyper') {
     const shinDown = Math.abs((A.shin ?? 180) - 180) < 40;
     return shinDown ? -feet() : .62 - y('pelvis');
@@ -355,16 +449,36 @@ function buildProps(M, a, scene) {
   const across = s => wp(M, 'index_01_' + s).sub(wp(M, 'pinky_01_' + s)).normalize();
   const pr = a.prop || '';
   if (pr.startsWith('barbell') && pr !== 'barbellfront') {
-    const heavy = /squat|deadlift|hinge|bench|bentrow/.test(a.key || '') || pr !== 'barbell';
+    const heavy = /squat|deadlift|hinge|bench|bentrow|hipthrust/.test(a.key || '') || pr !== 'barbell';
     const bb = makeBarbell(!heavy); g.add(bb);
     dyn.push(() => {
-      if (pr === 'barbell@shoulder') { const s = wp(M, 'spine_03'), n = wp(M, 'neck_01'); bb.position.copy(n).lerp(s, .35); bb.position.z -= .08; }
-      else { const [l, r] = hands(); alignBar(bb, l, r); }
+      const [l, r] = hands(); alignBar(bb, l, r);
     });
   }
   if (pr === 'barbellfront') { const bb = makeBarbell(true); g.add(bb); dyn.push(() => { const [l, r] = hands(); alignBar(bb, l, r); }); }
   if (pr === 'dumbbell') { const d = [makeDumbbell(), makeDumbbell()]; d.forEach(x => g.add(x)); dyn.push(() => { const h = hands(); d.forEach((x, i) => { x.position.copy(h[i]); x.quaternion.setFromUnitVectors(X, across(i ? 'r' : 'l')); }); }); }
   if (pr === 'kettlebell') { const k = makeKettle(); g.add(k); dyn.push(() => { const [l, r] = hands(); k.position.copy(l).add(r).multiplyScalar(.5).add(new THREE.Vector3(0, .03, 0)); }); }
+  // Laitteen nilkkapehmuste (reiden ojennus edessä, koukistus takana)
+  if (a.key === 'legext' || a.key === 'legcurl') {
+    const roll = cyl(.055, .5, MAT.pad); g.add(roll);
+    dyn.push(() => {
+      const ank = wp(M, 'foot_r').add(wp(M, 'foot_l')).multiplyScalar(.5), knee = wp(M, 'calf_r'), shin = ank.clone().sub(knee).normalize();
+      const front = a.key === 'legext' ? sag(MQ.poseAt(a, 0).torso + 90) : new THREE.Vector3(0, 1, 0);
+      const side = new THREE.Vector3().crossVectors(shin, new THREE.Vector3(1, 0, 0)).normalize();
+      const off = side.dot(front) > 0 ? side : side.negate();
+      roll.position.copy(ank).addScaledVector(shin, -.05).addScaledVector(off, a.key === 'legext' ? .07 : -.07);
+    });
+  }
+  if (pr === 'sled') {
+    const pl = box(.55, .38, .035, MAT.frame); g.add(pl);
+    const rail = [-.3, .3].map(() => { const r = cyl(.025, 1.6, MAT.metal, 'y'); g.add(r); return r; });
+    dyn.push(() => {
+      const fl = wp(M, 'ball_l'), fr = wp(M, 'ball_r'), ank = wp(M, 'foot_r'), hip = wp(M, 'pelvis');
+      const legDir = fr.clone().sub(wp(M, 'calf_r')).normalize(), c = fl.clone().add(fr).multiplyScalar(.5).lerp(ank, .5).addScaledVector(legDir, .07);
+      pl.position.copy(c); pl.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), legDir);
+      rail.forEach((r, i) => { r.position.copy(c).addScaledVector(legDir, .75).add(new THREE.Vector3(i ? .3 : -.3, 0, 0)); r.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), legDir); });
+    });
+  }
   if (pr === 'wheel') { const w = cyl(.1, .06, MAT.black); g.add(w); dyn.push(() => { const [l, r] = hands(); w.position.copy(l).add(r).multiplyScalar(.5); w.position.y = .1; }); }
   return { g, dyn };
 }
@@ -373,14 +487,17 @@ function buildStatic(M, a, scene, A0) {
   const g = new THREE.Group(); scene.add(g);
   const P = n => A0[n];
   const spot = new THREE.Mesh(new THREE.CircleGeometry(1.8, 64), new THREE.MeshBasicMaterial({ map: glowTex(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-  spot.rotation.x = -Math.PI / 2; spot.position.set(0, .002, P('pelvis').z); spot.visible = false; g.add(spot);
+  spot.rotation.x = -Math.PI / 2; spot.position.set(0, .002, P('pelvis').z); spot.visible = false; spot.userData.noFit = true; g.add(spot);
   const shade = new THREE.Mesh(new THREE.CircleGeometry(.75, 48), new THREE.MeshBasicMaterial({ map: shadowTex(), transparent: true, depthWrite: false }));
-  shade.rotation.x = -Math.PI / 2; shade.scale.set(1, 1.6, 1); shade.position.set(0, .003, P('pelvis').z); g.add(shade);
+  shade.rotation.x = -Math.PI / 2; shade.scale.set(1, 1.6, 1); shade.position.set(0, .003, P('pelvis').z); shade.userData.noFit = true; g.add(shade);
   if (a.floor === 'mat') {
     const m = new THREE.Mesh(new THREE.BoxGeometry(.7, .02, 1.95), [MAT.matEdge, MAT.matEdge, MAT.mat, MAT.matEdge, MAT.matEdge, MAT.matEdge]);
     m.position.set(0, .01, P('pelvis').z); g.add(m);
   }
-  if (a.bench || a.prop === 'bench') {
+  if (a.bench === 'shoulder') {
+    const s3 = P('spine_03'), b = box(1.1, .1, .36, MAT.pad); b.position.set(0, s3.y - .14, s3.z - .02); g.add(b);
+    [-.45, .45].forEach(x => { const l = box(.06, s3.y - .19, .3, MAT.frame); l.position.set(x, (s3.y - .19) / 2, s3.z - .02); g.add(l); });
+  } else if (a.bench || a.prop === 'bench') {
     const sup = Math.min(P('pelvis').y, P('spine_03').y) - .11;
     if (a.bench === 'incline') {
       const s = P('pelvis'), e = P('spine_03'), len = s.distanceTo(e) + .25, b = box(.32, .07, len, MAT.pad);
@@ -410,7 +527,7 @@ function buildStatic(M, a, scene, A0) {
     [-.27, .27].forEach(x => { const r = cyl(.02, .9, MAT.metal, 'z'); r.position.set(x, h.y - .02, h.z + .1); g.add(r); const post = cyl(.025, h.y, MAT.metal, 'y'); post.position.set(x, h.y / 2, h.z - .3); g.add(post); });
   }
   if (a.prop === 'hyper') { const pad = box(.4, .1, .35, MAT.pad); const p = P('pelvis'); pad.position.set(0, p.y - .13, p.z + .05); g.add(pad); const l = box(.06, p.y - .18, .06, MAT.metal); l.position.set(0, (p.y - .18) / 2, p.z); g.add(l); }
-  if (a.prop === 'sled') { const f = P('ball_r'), pl = box(.45, .4, .04, MAT.metal); pl.position.set(0, f.y + .05, f.z + .06); pl.rotation.x = -.6; g.add(pl); }
+
   return g;
 }
 const across2 = (M, s) => wp(M, 'index_01_' + s).sub(wp(M, 'pinky_01_' + s)).normalize();
@@ -436,11 +553,14 @@ function buildCable(M, a, scene, A0, k) {
     const arm = box(.05, .05, Math.abs(zB - c.p.z) + .05, MAT.frame); arm.position.set(c.p.x || 0, c.p.y, (zB + c.p.z) / 2); if (c.p.x === 0) t.add(arm);
     const wheel = new THREE.Mesh(new THREE.TorusGeometry(.045, .014, 10, 24), MAT.metal); wheel.position.copy(c.p); wheel.rotation.y = Math.PI / 2; t.add(wheel);
     scene.add(t);
-    c.handle = new THREE.Mesh(new THREE.TorusGeometry(.055, .009, 8, 24), MAT.metal); scene.add(c.handle);
+    c.bar = ['pulldown', 'pushdown'].includes(a.key);
+    c.handle = c.bar ? cyl(.014, a.key === 'pulldown' ? 1.15 : .5, MAT.metal) : new THREE.Mesh(new THREE.TorusGeometry(.055, .009, 8, 24), MAT.metal); scene.add(c.handle);
   });
   return () => pul.forEach(c => {
-    const s = c.n === 'hand_l' ? 'l' : 'r', h = gripPoint(M, s);
-    c.handle.position.copy(h); c.handle.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), across2(M, s)); const mid = h.clone().add(c.p).multiplyScalar(.5), len = h.distanceTo(c.p);
+    const s = c.n === 'hand_l' ? 'l' : 'r';
+    let h = gripPoint(M, s);
+    if (c.bar) { const l = gripPoint(M, 'l'), r = gripPoint(M, 'r'); h = l.clone().add(r).multiplyScalar(.5); c.handle.position.copy(h); c.handle.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), r.sub(l).normalize()); }
+    else { c.handle.position.copy(h); c.handle.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), across2(M, s)); } const mid = h.clone().add(c.p).multiplyScalar(.5), len = h.distanceTo(c.p);
     c.m.position.copy(mid); c.m.scale.set(1, len, 1); c.m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), c.p.clone().sub(h).normalize());
   });
 }
@@ -473,7 +593,7 @@ async function setup(ex, sex, w, h, opts = {}) {
   A0.gp_r = gripPoint(M, 'r'); A0.gp_l = gripPoint(M, 'l');
   const target = A0[anchor].clone();
   const k = (wp(M, 'neck_01').distanceTo(wp(M, 'pelvis'))) / MQ.L.torso;
-  buildStatic(M, a, scene, A0);
+  const stat = buildStatic(M, a, scene, A0);
   if (!opts.noRoom) buildRoom(scene, A0.pelvis);
   const props = buildProps(M, a, scene);
   const cable = buildCable(M, a, scene, A0, k);
@@ -484,13 +604,16 @@ async function setup(ex, sex, w, h, opts = {}) {
   };
   // Kamera: rajaus alku- ja loppuasennon mukaan
   const bbox = new THREE.Box3();
-  [0, .45].forEach(t => { place(t); ['Head', 'hand_l', 'hand_r', 'ball_l', 'ball_r', 'pelvis', 'calf_l', 'calf_r', 'lowerarm_l'].forEach(n => bbox.expandByPoint(wp(M, n))); });
+  const fitObj = o => o.traverse(c => { if (c.isMesh && !c.userData.noFit) { c.geometry.computeBoundingBox(); const b = c.geometry.boundingBox.clone().applyMatrix4(c.matrixWorld); if (b.getSize(new THREE.Vector3()).length() < 3) bbox.union(b); } });
+  [0, .45].forEach(t => { place(t); props.dyn.forEach(f => f()); props.g.updateMatrixWorld(true);
+    ['Head', 'hand_l', 'hand_r', 'ball_l', 'ball_r', 'pelvis', 'calf_l', 'calf_r', 'lowerarm_l'].forEach(n => bbox.expandByPoint(wp(M, n))); fitObj(props.g); });
+  stat.updateMatrixWorld(true); fitObj(stat);
   bbox.min.y = Math.min(bbox.min.y, 0);
-  bbox.expandByScalar(.16);
+  bbox.expandByScalar(.22);
   const center = bbox.getCenter(new THREE.Vector3()), size = bbox.getSize(new THREE.Vector3());
   const aspect = w / h, cam = new THREE.PerspectiveCamera(28, aspect, .05, 50);
   const fitH = Math.max(size.y, (a.front ? size.x : size.z) / aspect);
-  const dist = fitH / (2 * Math.tan(THREE.MathUtils.degToRad(14))) * 1.04;
+  const dist = fitH / (2 * Math.tan(THREE.MathUtils.degToRad(14))) * 1.12;
   const tA = a.A.torso ?? 0, lying = !a.front && ['hip', 'shoulders'].includes(a.A.anchor) && (Math.abs(tA - 270) < 40 || Math.abs(tA - 90) < 40);
   const dir = a.front ? new THREE.Vector3(.28, .1, 1).normalize() : lying ? new THREE.Vector3(-.85, .7, .5).normalize() : new THREE.Vector3(-1, .14, .62).normalize();
   // Kohdelihas takapuolella → kamera takaviistoon, jotta punainen lihas näkyy

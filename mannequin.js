@@ -21,13 +21,14 @@
     goblet: { A: P(STAND, { torso: 4, upper: 165, fore: 15 }), B: P(STAND, { torso: 25, thigh: 98, shin: 208, upper: 150, fore: 25 }), prop: 'kettlebell', hi: 'thigh' },
     bwsquat: { A: P(STAND, { upper: 180, fore: 180 }), B: P(STAND, { torso: 32, thigh: 98, shin: 205, upper: 90, fore: 90 }), hi: 'thigh' },
     lunge: { A: P(STAND, { torso: 0, at: [120, GROUND - 4], thigh2: 180, shin2: 180 }), B: P(STAND, { torso: 4, at: [120, GROUND - 4], thigh: 112, shin: 185, thigh2: 200, shin2: 262, foot2: 160 }), prop: 'dumbbell', hi: 'thigh' },
-    legpress: { A: P(SEAT, { torso: 300, at: [80, 160], thigh: 40, shin: 150 }), B: P(SEAT, { torso: 300, at: [80, 160], thigh: 62, shin: 68 }), prop: 'sled', seat: 'recline', hi: 'thigh' },
+    legpress: { A: P(SEAT, { torso: 318, at: [80, 160], thigh: 28, shin: 138, foot: 40, upper: 160, fore: 120 }), B: P(SEAT, { torso: 318, at: [80, 160], thigh: 52, shin: 58, foot: 150, upper: 160, fore: 120 }), prop: 'sled', seat: 'recline', hi: 'thigh' },
     legext: { A: P(SEAT, { shin: 180, upper: 170, fore: 170 }), B: P(SEAT, { shin: 98, upper: 170, fore: 170 }), seat: 'chair', hi: 'thigh' },
     legcurl: { A: P(LIE, { torso: 90, at: [100, 148], thigh: 270, shin: 270, foot: 180, upper: 175, fore: 90, head: 80 }), B: P(LIE, { torso: 90, at: [100, 148], thigh: 270, shin: 350, foot: 260, upper: 175, fore: 90, head: 80 }), prop: 'bench', hi: 'thigh' },
     hinge: { A: P(STAND, { upper: 182, fore: 180 }), B: P(STAND, { torso: 78, thigh: 168, shin: 186, upper: 180, fore: 180 }), prop: 'barbell', hi: 'thigh' },
     deadlift: { A: P(STAND, { upper: 182, fore: 180 }), B: P(STAND, { torso: 62, thigh: 122, shin: 202, upper: 182, fore: 180 }), prop: 'barbell@floor', hi: 'torso' },
     swing: { A: P(STAND, { torso: 70, thigh: 160, shin: 190, upper: 200, fore: 200 }), B: P(STAND, { torso: 0, upper: 88, fore: 88 }), prop: 'kettlebell', hi: 'thigh' },
     bridge: { A: P(LIE, { anchor: 'shoulders', at: [80, GROUND - 10], torso: 268, thigh: 48, shin: 162, upper: 95, fore: 95 }), B: P(LIE, { anchor: 'shoulders', at: [80, GROUND - 10], torso: 245, thigh: 75, shin: 170, upper: 100, fore: 100 }), floor: 'mat', hi: 'thigh' },
+    hipthrust: { A: P(LIE, { anchor: 'shoulders', at: [80, GROUND - 10], torso: 262, thigh: 50, shin: 165, upper: 120, fore: 60 }), B: P(LIE, { anchor: 'shoulders', at: [80, GROUND - 10], torso: 274, thigh: 92, shin: 172, upper: 120, fore: 60 }), prop: 'barbell@hips', bench: 'shoulder', hi: 'thigh' },
     kickback: { A: P(STAND, { anchor: 'hands', at: [150, GROUND - 2], torso: 92, upper: 180, fore: 180, thigh: 180, shin: 270, foot: 180, thigh2: 180, shin2: 270, foot2: 180 }), B: P(STAND, { anchor: 'hands', at: [150, GROUND - 2], torso: 92, upper: 180, fore: 180, thigh: 268, shin: 300, foot: 0, thigh2: 180, shin2: 270, foot2: 180 }), floor: 'mat', hi: 'thigh' },
     calf: { A: P(STAND, { anchor: 'toes', at: [118, GROUND - 3] }), B: P(STAND, { anchor: 'toes', at: [118, GROUND - 3], foot: 130 }), prop: 'dumbbell', hi: 'shin' },
     seatcalf: { A: P(SEAT, { shin: 180 }), B: P(SEAT, { shin: 180, foot: 130 }), seat: 'chair', hi: 'shin' },
@@ -35,7 +36,7 @@
     incline: { A: P(LIE, { torso: 300, upper: 20, fore: 18 }), B: P(LIE, { torso: 300, upper: 170, fore: 20 }), prop: 'dumbbell', bench: 'incline', hi: 'torso' },
     dbbench: { A: P(LIE, { upper: 2, fore: 0 }), B: P(LIE, { upper: 158, fore: 2 }), prop: 'dumbbell', bench: BENCH, hi: 'torso' },
     pushup: { A: P(STAND, { anchor: 'hands', at: [150, GROUND - 2], torso: 72, upper: 180, fore: 180, thigh: 252, shin: 252, foot: 165 }), B: P(STAND, { anchor: 'hands', at: [150, GROUND - 2], torso: 84, upper: 285, fore: 172, thigh: 264, shin: 264, foot: 175 }), floor: 'mat', hi: 'torso' },
-    dip: { A: P(STAND, { anchor: 'hands', at: [112, 118], torso: 4, upper: 180, fore: 180, thigh: 190, shin: 165 }), B: P(STAND, { anchor: 'hands', at: [112, 118], torso: 18, upper: 262, fore: 172, thigh: 200, shin: 170 }), prop: 'bars', hi: 'upper' },
+    dip: { A: P(STAND, { anchor: 'hands', at: [112, 118], torso: 4, upper: 180, fore: 180, thigh: 182, shin: 255, foot: 200 }), B: P(STAND, { anchor: 'hands', at: [112, 118], torso: 18, upper: 262, fore: 172, thigh: 190, shin: 262, foot: 205 }), prop: 'bars', hi: 'upper' },
     benchdip: { A: P(SEAT, { anchor: 'hands', at: [78, 150], torso: 8, upper: 180, fore: 180, thigh: 90, shin: 180 }), B: P(SEAT, { anchor: 'hands', at: [78, 150], torso: 8, upper: 245, fore: 178, thigh: 100, shin: 168 }), bench: { type: 'bench', x: 40, y: 152, w: 44, h: 8 }, hi: 'upper' },
     ohpress: { A: P(STAND, { upper: 160, fore: 12 }), B: P(STAND, { upper: 4, fore: 2 }), prop: 'barbell', hi: 'shoulder' },
     seatpress: { A: P(SEAT, { upper: 160, fore: 12 }), B: P(SEAT, { upper: 4, fore: 2 }), prop: 'dumbbell', seat: 'chair', hi: 'shoulder' },
@@ -102,7 +103,8 @@
     if (has('superman')) return 'superman';
     if (has('romanian') || has('stiff') || has('good morning') || has('pull through')) return 'hinge';
     if (has('deadlift') || has('rack pull') || has('clean') || has('snatch')) return 'deadlift';
-    if (has('hip thrust') || has('bridge') || has('butt lift')) return 'bridge';
+    if (has('hip thrust')) return 'hipthrust';
+    if (has('bridge') || has('butt lift')) return 'bridge';
     if (has('kickback')) return m.includes('triceps') ? 'tkick' : 'kickback';
     if (has('leg press') || has('sled')) return 'legpress';
     if (has('leg extension')) return 'legext';
