@@ -4,7 +4,7 @@
   const DB_URL = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
   const IMG = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
   const KEY = 'treeni.v1'; // avain pidetään samana, jotta vanhat tiedot säilyvät
-  const VERSION = '2.4';
+  const VERSION = '3.0';
   const PAGE = 30;
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -17,7 +17,16 @@
      history = [{ start, end, templateId, name, items: [{ id, sets: [{ kg, reps }] }] }] */
   let S = { schema: 2, active: null, history: [], rest: 90, favs: [], profile: null, bodyLog: [], templates: [], lastBackup: 0 };
   try { S = Object.assign(S, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) {}
-  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
+  const save = () => { if (typeof DEMO !== 'undefined' && DEMO) return; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
+  // Esittelytila (#esittely): esimerkkitiedot muistiin, ei tallenneta laitteelle
+  const DEMO = /esittely/.test(location.hash);
+  if (DEMO) {
+    const D = 864e5, n = Date.now();
+    S = Object.assign(S, { theme: (location.hash.match(/teema=(\w+)/) || [])[1] || S.theme, profile: { v: 1, name: 'Hannes', sex: 'male', goal: 'muscle', level: 'intermediate', daysPerWeek: 3, equipment: 'gym', heightCm: 182, weightKg: 86, birthYear: 1995 },
+      goals: { progress: true, weightLoss: null }, bodyLog: [{ ts: n - 20 * D, kg: 87.4 }, { ts: n - 6 * D, kg: 86.2 }],
+      history: [{ start: n - 9 * D, end: n - 9 * D + 3.1e6, templateId: 'full-gym-A', name: 'Koko keho A', items: [{ id: 'Barbell_Squat', sets: [{ kg: 80, reps: 10 }, { kg: 80, reps: 9 }] }] },
+        { start: n - 2 * D, end: n - 2 * D + 2.9e6, templateId: 'full-gym-B', name: 'Koko keho B', items: [{ id: 'Romanian_Deadlift', sets: [{ kg: 70, reps: 10 }] }] }] });
+  }
 
   let DB = [], BY = new Map();
   const ui = { side: 'front', sel: new Set(), q: '', equip: '', shown: PAGE, view: 'home', pick: null };
@@ -28,7 +37,35 @@
   const eqName = q => FI.equipment[q] || q || 'Muu';
   const img = (e, i = 0) => e && e.images && e.images[i] ? IMG + e.images[i] : '';
   // Liikkeen pikkukuva: piirretty hahmo (Mannequin), valokuvat vain erikseen pyydettäessä
-  const thumb = e => e ? Mannequin.svg(e) : '';
+  // 3D-pikkukuva renderöidään laiskasti näkyviin tullessa; siihen asti piirretty hahmo
+  const thumb = e => e ? `<span class="t3" data-t3="${esc(e.id)}">${Mannequin.svg(e)}</span>` : '';
+  const T3 = new Map(); let t3q = [], t3busy = false;
+  // Jonoon ne pikkukuvat, jotka ovat ruudulla tai lähellä (tarkistetaan piirron, näkymän vaihdon ja vierityksen yhteydessä)
+  function hydrate3d(root) {
+    if (!window.WebGLRenderingContext || S.anim2d) return;
+    const vh = innerHeight + 300;
+    (root || document).querySelectorAll('[data-t3]:not([data-done])').forEach(el => {
+      const r = el.getBoundingClientRect();
+      if (r.height > 0 && r.top < vh && r.bottom > -300) { el.dataset.done = '1'; t3q.push(el); }
+    });
+    if (t3q.length) pump3d();
+  }
+  let t3scroll = 0;
+  addEventListener('scroll', () => { clearTimeout(t3scroll); t3scroll = setTimeout(() => hydrate3d(document.querySelector('.view:not([hidden])')), 120); }, { passive: true });
+  async function pump3d() {
+    if (t3busy) return; t3busy = true;
+    try {
+      const H = await import('./human3d.js');
+      while (t3q.length) {
+        const el = t3q.shift(), e = BY.get(el.dataset.t3); if (!e || !el.isConnected) continue;
+        const key = Mannequin.classify(e) + '|' + e.primaryMuscles.join(',') + '|' + bodySex();
+        if (!T3.has(key)) T3.set(key, await H.still(e, bodySex(), .45, 240, 180));
+        el.innerHTML = `<img src="${T3.get(key)}" alt="">`; el.classList.add('on');
+        await new Promise(r => setTimeout(r, 0));
+      }
+    } catch (err) { console.warn('3D-pikkukuvat ei käytössä', err); }
+    t3busy = false;
+  }
   const e1rm = (kg, r) => kg * (1 + r / 30);
   const fmt = n => (Math.round(n * 10) / 10).toString().replace('.', ',');
   const dur = ms => { const m = Math.round(ms / 60000); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
@@ -45,7 +82,9 @@
     try {
       const r = await fetch(DB_URL);
       DB = await r.json();
-      const rank = e => (FI.names[e.id] ? 0 : 1) * 10 + (e.category === 'strength' || e.category === 'powerlifting' ? 0 : e.category === 'stretching' ? 5 : 2);
+      // Suosituimmat ensin: lihasten kärkiliikkeet ja ohjelmien liikkeet
+      const POP = new Set([...Object.values(FI.top).flat()]);
+      const rank = e => (POP.has(e.id) ? 0 : 1) * 10 + (e.category === 'strength' || e.category === 'powerlifting' ? 0 : e.category === 'stretching' ? 5 : 2);
       DB.sort((a, b) => rank(a) - rank(b) || nameOf(a).localeCompare(nameOf(b), 'fi'));
       BY = new Map(DB.map(e => [e.id, e]));
       const eq = [...new Set(DB.map(e => e.equipment).filter(Boolean))].sort((a, b) => eqName(a).localeCompare(eqName(b), 'fi'));
@@ -88,6 +127,7 @@
     $('#count').textContent = `${what}: ${list.length} liikettä`;
     $('#list').innerHTML = list.slice(0, ui.shown).map(card).join('');
     $('#more').hidden = list.length <= ui.shown;
+    hydrate3d($('#list'));
   }
 
   $('#map').addEventListener('click', ev => {
@@ -115,7 +155,7 @@
           <button class="tl" data-ex="${esc(id)}"><i>${i + 1}</i><span class="th">${thumb(e)}</span><span class="tn"><b>${esc(nameOf(e))}</b><small>${esc(eqName(e.equipment))}${FI_OHJE[id] ? ' · ' + esc(FI_OHJE[id].short) : ''}</small></span></button>
           <button class="tadd" data-add="${esc(id)}" aria-label="Lisää treeniin">+</button></li>`; }).join('')}</ul>
         <button class="cta alt" data-close>Näytä kaikki ${all} liikettä</button></div>`;
-    $('#sheet').hidden = false;
+    $('#sheet').hidden = false; hydrate3d(card);
     card.querySelectorAll('[data-topn]').forEach(b => b.addEventListener('click', () => {
       S.topN = Math.min(10, Math.max(1, n + +b.dataset.topn)); save(); openMuscle(m);
     }));
@@ -211,17 +251,34 @@
     card.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
     $('#sheet').hidden = false;
     clearInterval(animT);
-    Mannequin.play($('#mqBox', card), e);
+    play3d($('#mqBox', card), e);
     const ph = card.querySelector('[data-photos]');
     if (ph) ph.addEventListener('click', () => {
       const box = $('#mqBox', card), showing = box.dataset.photos === '1';
       clearInterval(animT);
-      if (showing) { box.dataset.photos = ''; ph.textContent = 'Valokuvat'; Mannequin.play(box, e); return; }
-      Mannequin.stop(); box.dataset.photos = '1'; ph.textContent = 'Hahmo';
+      if (showing) { box.dataset.photos = ''; ph.textContent = 'Valokuvat'; play3d(box, e); return; }
+      Mannequin.stop(); if (H3) H3.stop(); box.dataset.photos = '1'; ph.textContent = 'Hahmo';
       box.innerHTML = (e.images || []).slice(0, 2).map((s, i) => `<img src="${IMG + s}" alt="" style="opacity:${i ? 0 : 1}">`).join('');
       const ims = box.querySelectorAll('img');
       if (ims.length > 1) { let k = 0; animT = setInterval(() => { k ^= 1; ims[0].style.opacity = k ? 0 : 1; ims[1].style.opacity = k ? 1 : 0; }, 1100); }
     });
+  }
+  // 3D-ihminen (ladataan vasta tarvittaessa); sillä välin ja virhetilanteessa piirretty hahmo
+  let H3 = null, heroEx = null;
+  // Koti-näkymän elävä 3D-ihminen (sama 3D-piirtäjä kuin liikkeen tiedoissa, joten se pysähtyy lehden ajaksi)
+  function heroPlay(e) {
+    if (e) heroEx = e;
+    const box = $('#today3d');
+    if (!box || !heroEx || !window.WebGLRenderingContext || S.anim2d || ui.view !== 'home' || !$('#sheet').hidden) return;
+    import('./human3d.js').then(m => { H3 = m; return m.play(box, heroEx, bodySex()); }).catch(() => {});
+  }
+  function play3d(box, e) {
+    Mannequin.play(box, e);
+    if (!window.WebGLRenderingContext || S.anim2d) return;
+    box.classList.add('loading3d');
+    import('./human3d.js').then(m => { H3 = m; return m.play(box, e, bodySex()); })
+      .then(() => { Mannequin.stop(); box.classList.remove('loading3d'); })
+      .catch(err => { console.warn('3D ei käytössä:', err); box.classList.remove('loading3d'); });
   }
   // Lyhyt ohje heti näkyviin, tarkemmat ohjeet erillisestä painikkeesta
   function quickHow(e) {
@@ -246,7 +303,7 @@
       <path d="M${xy.map(a => a.join(' ')).join(' L')}"/>${xy.map(a => `<circle cx="${a[0]}" cy="${a[1]}" r="4"/>`).join('')}
       <text x="${p}" y="14">${fmt(hi)} kg</text><text x="${p}" y="${H - 6}">${fmt(lo)} kg</text></svg>`;
   }
-  function closeSheet() { $('#sheet').hidden = true; clearInterval(animT); Mannequin.stop(); }
+  function closeSheet() { $('#sheet').hidden = true; clearInterval(animT); Mannequin.stop(); if (H3) H3.stop(); heroPlay(); }
   $('#sheet').addEventListener('click', ev => {
     if (ev.target.closest('[data-close]')) return closeSheet();
     const f = ev.target.closest('[data-fav]');
@@ -382,6 +439,7 @@
       <button class="cta" id="finish">${finishArmed ? 'Vahvista: tallenna ja lopeta' : 'Lopeta treeni'}</button>
       <button class="cta alt" id="discard" style="color:var(--danger)">Hylkää treeni</button>`;
     tickElapsed();
+    hydrate3d(box);
   }
   function tickElapsed() {
     const el = $('#elapsed'); if (el && S.active) {
@@ -522,7 +580,7 @@
       const d = new Date(ws); d.setDate(d.getDate() + i); const a = d.getTime();
       const has = S.history.some(w => w.start >= a && w.start < a + DAY);
       const today = d.toDateString() === now.toDateString();
-      return `<span class="${has ? 'on' : ''} ${today ? 'today' : ''}">${n}</span>`;
+      return `<span class="${has ? 'on' : ''} ${today ? 'is-today' : ''}">${n}</span>`;
     }).join('');
     const nxt = (ui.pick && findTpl(ui.pick)) || Programs.next(prog, S.history);
     const last = S.history[S.history.length - 1];
@@ -535,6 +593,7 @@
       <div class="hello"><p>${now.toLocaleDateString('fi-FI', { weekday: 'long', day: 'numeric', month: 'numeric' })}</p><h2>${hello}, ${esc(P.name)}!</h2></div>
       ${S.active ? `<button class="banner" data-go="workout"><b>Treeni käynnissä</b><span>${esc(S.active.name || 'Oma treeni')} · ${S.active.items.length} liikettä</span><i>Jatka →</i></button>` : ''}
       <div class="today">
+        <div class="today-3d" id="today3d" aria-hidden="true"></div>
         <p class="today-k">Tänään</p>
         <h3>${esc(nxt.name)}</h3>
         <p class="today-m">${nxt.items.length} liikettä · noin ${mins} min${own ? ' · oma pohja' : ` · ${esc(g.name.toLowerCase())}`}</p>
@@ -556,6 +615,8 @@
         <button data-go="history"><svg viewBox="0 0 24 24"><path d="M4 19V5m0 14h16M8 15l3-4 3 2 5-6"/></svg>Kehitys</button>
       </div>
       ${last ? `<p class="lastline">Viimeksi ${date(last.start)}: <b>${esc(last.name || last.items.map(i => BY.get(i.id) ? nameOf(BY.get(i.id)) : i.id).slice(0, 2).join(', '))}</b></p>` : ''}`;
+    hydrate3d(box);
+    heroPlay(nxt.items[0] && BY.get(nxt.items[0].id));
   }
   $('#home').addEventListener('click', ev => {
     const t = ev.target;
@@ -687,8 +748,9 @@
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
     if (v === 'workout') renderWorkout();
     if (v === 'history') renderHistory();
-    if (v === 'home') renderHome();
+    if (v === 'home') renderHome(); else if (H3 && $('#sheet').hidden) H3.stop();
     window.scrollTo(0, 0);
+    setTimeout(() => hydrate3d($('#view-' + v)), 30);
   }
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 

@@ -1,6 +1,6 @@
 /* Offline-tuki: sovelluksen tiedostot välimuistiin, liikepankki ja kuvat välimuistiin ensimmäisellä latauksella. */
-const V = 'treeni-v6';
-const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'muscles.js', 'names-fi.js', 'programs.js', 'ohjeet-fi.js', 'mannequin.js', 'manifest.webmanifest', 'icon.svg'];
+const V = 'treeni-v7';
+const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'muscles.js', 'names-fi.js', 'programs.js', 'ohjeet-fi.js', 'mannequin.js', 'human3d.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -19,7 +19,7 @@ self.addEventListener('fetch', e => {
     return;
   }
   // Liikepankki, kuvat ja fontit: välimuisti ensin
-  if (/raw\.githubusercontent\.com|fonts\.(googleapis|gstatic)\.com/.test(u.host)) {
+  if (/raw\.githubusercontent\.com|fonts\.(googleapis|gstatic)\.com|cdn\.jsdelivr\.net/.test(u.host)) {
     e.respondWith(caches.match(e.request).then(hit => hit || fetch(e.request).then(r => {
       const c = r.clone(); caches.open(V).then(x => x.put(e.request, c)); return r;
     })));

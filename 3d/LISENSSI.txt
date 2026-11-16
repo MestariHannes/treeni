@@ -1,0 +1,5 @@
+3D-ihmismallit (male/female .gltf/.bin, hiukset, tekstuurit):
+Quaternius – Universal Base Characters [Standard], https://quaternius.com
+Lisenssi: CC0 1.0 Universal (Public Domain Dedication)
+https://creativecommons.org/publicdomain/zero/1.0/
+Mallit on pakattu verkkokäyttöön (tekstuurit 1024 px JPG). Animaatiot on tehty tätä sovellusta varten.

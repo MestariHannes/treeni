@@ -23,11 +23,11 @@
     lunge: { A: P(STAND, { torso: 0, at: [120, GROUND - 4], thigh2: 180, shin2: 180 }), B: P(STAND, { torso: 4, at: [120, GROUND - 4], thigh: 112, shin: 185, thigh2: 200, shin2: 262, foot2: 160 }), prop: 'dumbbell', hi: 'thigh' },
     legpress: { A: P(SEAT, { torso: 300, at: [80, 160], thigh: 40, shin: 150 }), B: P(SEAT, { torso: 300, at: [80, 160], thigh: 62, shin: 68 }), prop: 'sled', seat: 'recline', hi: 'thigh' },
     legext: { A: P(SEAT, { shin: 180, upper: 170, fore: 170 }), B: P(SEAT, { shin: 98, upper: 170, fore: 170 }), seat: 'chair', hi: 'thigh' },
-    legcurl: { A: P(LIE, { torso: 268, at: [100, 148], thigh: 92, shin: 90, foot: 180, upper: 175, fore: 270 }), B: P(LIE, { torso: 268, at: [100, 148], thigh: 92, shin: 15, foot: 100, upper: 175, fore: 270 }), prop: 'bench', hi: 'thigh' },
+    legcurl: { A: P(LIE, { torso: 90, at: [100, 148], thigh: 270, shin: 270, foot: 180, upper: 175, fore: 90, head: 80 }), B: P(LIE, { torso: 90, at: [100, 148], thigh: 270, shin: 350, foot: 260, upper: 175, fore: 90, head: 80 }), prop: 'bench', hi: 'thigh' },
     hinge: { A: P(STAND, { upper: 182, fore: 180 }), B: P(STAND, { torso: 78, thigh: 168, shin: 186, upper: 180, fore: 180 }), prop: 'barbell', hi: 'thigh' },
     deadlift: { A: P(STAND, { upper: 182, fore: 180 }), B: P(STAND, { torso: 62, thigh: 122, shin: 202, upper: 182, fore: 180 }), prop: 'barbell@floor', hi: 'torso' },
     swing: { A: P(STAND, { torso: 70, thigh: 160, shin: 190, upper: 200, fore: 200 }), B: P(STAND, { torso: 0, upper: 88, fore: 88 }), prop: 'kettlebell', hi: 'thigh' },
-    bridge: { A: P(LIE, { anchor: 'feet', at: [140, GROUND - 4], torso: 268, thigh: 58, shin: 168, upper: 180, fore: 90 }), B: P(LIE, { anchor: 'feet', at: [140, GROUND - 4], torso: 252, thigh: 100, shin: 168, upper: 160, fore: 90 }), floor: 'mat', hi: 'thigh' },
+    bridge: { A: P(LIE, { anchor: 'shoulders', at: [80, GROUND - 10], torso: 268, thigh: 48, shin: 162, upper: 95, fore: 95 }), B: P(LIE, { anchor: 'shoulders', at: [80, GROUND - 10], torso: 245, thigh: 75, shin: 170, upper: 100, fore: 100 }), floor: 'mat', hi: 'thigh' },
     kickback: { A: P(STAND, { anchor: 'hands', at: [150, GROUND - 2], torso: 92, upper: 180, fore: 180, thigh: 180, shin: 270, foot: 180, thigh2: 180, shin2: 270, foot2: 180 }), B: P(STAND, { anchor: 'hands', at: [150, GROUND - 2], torso: 92, upper: 180, fore: 180, thigh: 268, shin: 300, foot: 0, thigh2: 180, shin2: 270, foot2: 180 }), floor: 'mat', hi: 'thigh' },
     calf: { A: P(STAND, { anchor: 'toes', at: [118, GROUND - 3] }), B: P(STAND, { anchor: 'toes', at: [118, GROUND - 3], foot: 130 }), prop: 'dumbbell', hi: 'shin' },
     seatcalf: { A: P(SEAT, { shin: 180 }), B: P(SEAT, { shin: 180, foot: 130 }), seat: 'chair', hi: 'shin' },
@@ -261,17 +261,20 @@
     return s;
   }
   const ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  // Liikkeen vaihe t 0..1 → sekoitus A–B: A → B (40 %), tauko, B → A (40 %), tauko
+  const blend = (a, t) => a.static ? (Math.sin(t * Math.PI * 2) + 1) / 2 : t < .4 ? ease(t / .4) : t < .5 ? 1 : t < .9 ? 1 - ease((t - .5) / .4) : 0;
   function frame(a, t) {
-    // t 0..1: A → B (40 %), tauko, B → A (40 %), tauko
-    const k = a.static ? (Math.sin(t * Math.PI * 2) + 1) / 2 : t < .4 ? ease(t / .4) : t < .5 ? 1 : t < .9 ? 1 - ease((t - .5) / .4) : 0;
-    const p = lerpPose(a.A, a.B, k);
+    const p = lerpPose(a.A, a.B, blend(a, t));
     return a.front ? drawFront(a, p) : drawSide(a, p);
   }
 
   /* ---------- Julkinen rajapinta ---------- */
   let raf = 0;
   window.Mannequin = {
-    ARCH, classify,
+    ARCH, classify, GROUND, L,
+    // 3D-hahmolle: asento ajanhetkellä t
+    poseAt(a, t) { return lerpPose(a.A, a.B, blend(a, t)); },
+    duration(a) { return a.fast ? 1400 : a.static ? 4000 : 3200; },
     // Piirtää yhden kuvan (t = 0..1) esim. listan pikkukuvaksi
     svg(e, t = .45) { const a = ARCH[classify(e)]; return `<svg class="mq" viewBox="0 0 220 220" aria-hidden="true">${frame(a, t)}</svg>`; },
     // Käynnistää animaation annettuun elementtiin; palauttaa pysäytysfunktion

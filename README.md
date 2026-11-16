@@ -13,8 +13,9 @@ Treenipäiväkirja puhelimeen (PWA). Valitse lihas kartalta, löydä liike ja ki
 - Anatominen lihaskartta edestä ja takaa, miehen tai naisen malli: napauta lihasta, niin näet sen liikkeet
 - Napauta lihasta: alavalikkoon sen parhaat liikkeet (1–10)
 - Liikepankki (876 liikettä), haku ja välinesuodatin
-- Liikkeet näytetään piirrettynä hahmoanimaationa, kohdelihas korostettuna
-- Suomenkieliset ohjeet 169 yleisimmälle liikkeelle: lyhyt ohje + tarkemmat ohjeet ja vinkit
+- Liikkeet näytetään 3D-ihmisen animaationa (mies tai nainen), kohdelihas korostettuna vartalossa
+- Suomenkieliset ohjeet kaikille 876 liikkeelle: lyhyt ohje + tarkemmat ohjeet ja vinkit
+- Tavoitetilat: painonpudotus ja nosta painoja joka viikko
 - Teemat: automaattinen, vaalea, tumma ja musta
 - Liikkeen tiedot, historia, ennätykset ja kehityskäyrä
 - Treenin kirjaus (kg × toistot), viime kerran ehdotukset ja lepoajastin
@@ -28,6 +29,6 @@ Android: avaa Chromella → valikko → Lisää aloitusnäytölle.
 ## Lähteet
 
 Liikkeiden tiedot ja valokuvat (valinnainen näkymä): [free-exercise-db](https://github.com/yuhonas/free-exercise-db) (Unlicense), haetaan ajon aikana.
-Lihaskartta ja liikehahmo on piirretty tätä sovellusta varten.
+Lihaskartta ja animaatiot on tehty tätä sovellusta varten. 3D-ihmismallit: Quaternius, Universal Base Characters (CC0).
 
 Puhdas HTML, CSS ja JavaScript, ei rakennusvaihetta.
