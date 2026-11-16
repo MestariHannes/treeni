@@ -162,6 +162,56 @@ function aim(bone, child, dir) {
 const sag = (deg, x = 0) => { const r = deg * Math.PI / 180; return new THREE.Vector3(x, Math.cos(r), Math.sin(r)).normalize(); };
 const frontDir = (deg, side) => { const r = deg * Math.PI / 180; return new THREE.Vector3(side * Math.sin(r), Math.cos(r), 0).normalize(); };
 
+// Otteet: over = myötäote (kämmen poispäin kyynärvarren taivutussuunnasta), under = vastaote, neutral = kämmenet vastakkain,
+// flat = kämmen alas (punnerrus, lankku, tuki), forward = kämmenet eteen
+const GRIPS = {
+  over: ['bench', 'incline', 'dbbench', 'ohpress', 'seatpress', 'bentrow', 'deadlift', 'hinge', 'pullup', 'pulldown', 'skull', 'pushdown', 'upright', 'facepull', 'frontraise', 'invrow', 'legraise', 'squat', 'rollout', 'jump'],
+  under: ['curl', 'bbcurl', 'wristcurl'],
+  neutral: ['dbrow', 'lunge', 'calf', 'swing', 'goblet', 'shrug', 'ohext', 'tkick', 'cablerow', 'lateral', 'reversefly', 'dip', 'stand', 'stretch', 'bwsquat'],
+  flat: ['pushup', 'plank', 'climber', 'kickback', 'benchdip', 'bridge'],
+  forward: ['fly']
+};
+const gripOf = key => Object.keys(GRIPS).find(g => GRIPS[g].includes(key)) || null;
+const _pa = new THREE.Vector3(), _pb = new THREE.Vector3(), _pc = new THREE.Vector3();
+// Kämmenen normaali: sormenpäät koukistuvat kämmenen puolelle
+function palmNormal(M, s) {
+  const h = wp(M, 'hand_' + s), m1 = wp(M, 'middle_01_' + s), tip = wp(M, 'middle_03_' + s);
+  const ax = m1.sub(h).normalize(), v = tip.sub(h);
+  return v.sub(ax.multiplyScalar(v.dot(ax))).normalize();
+}
+// Kierretään kyynärvartta oman akselinsa ympäri, kunnes kämmen osoittaa haluttuun suuntaan
+function twistPalm(M, s, want) {
+  const lo = M.bones['lowerarm_' + s], hand = M.bones['hand_' + s];
+  const a = wp(M, 'hand_' + s).sub(wp(M, 'lowerarm_' + s)).normalize();
+  const p = palmNormal(M, s), n = want.clone();
+  p.sub(_pa.copy(a).multiplyScalar(p.dot(a))).normalize(); n.sub(_pb.copy(a).multiplyScalar(n.dot(a)));
+  if (n.lengthSq() < 1e-4) return; n.normalize();
+  const ang = Math.atan2(_pc.crossVectors(p, n).dot(a), p.dot(n));
+  _q.setFromAxisAngle(a, ang);
+  lo.getWorldQuaternion(_wq).premultiply(_q); lo.parent.getWorldQuaternion(_pq);
+  lo.quaternion.copy(_pq.invert().multiply(_wq)); lo.updateMatrixWorld(true);
+}
+// Otekohta: nyrkin keskikohta, johon tanko / kahva sijoitetaan
+function gripPoint(M, s) {
+  const h = wp(M, 'hand_' + s), m1 = wp(M, 'middle_01_' + s);
+  return h.clone().lerp(m1, .8).addScaledVector(palmNormal(M, s), .028);
+}
+function applyGrip(M, a, p) {
+  const g = gripOf(a.key); if (!g) return;
+  [['r', -1], ['l', 1]].forEach(([s, m]) => {
+    let n;
+    if (a.front) {
+      const d = frontDir(p.upper, m);
+      n = g === 'forward' ? new THREE.Vector3(0, 0, 1) : g === 'over' ? new THREE.Vector3(0, 0, -1) : new THREE.Vector3().crossVectors(d, new THREE.Vector3(0, 0, m));
+    } else if (g === 'over') n = sag(p.fore + 90);
+    else if (g === 'under') n = sag(p.fore - 90);
+    else if (g === 'neutral') n = new THREE.Vector3(-m, 0, 0);
+    else if (g === 'flat') n = new THREE.Vector3(0, -1, 0);
+    else n = new THREE.Vector3(0, 0, 1);
+    twistPalm(M, s, n);
+  });
+}
+
 function pose(M, a, p) {
   const B = M.bones;
   M.root.position.set(0, 0, 0);
@@ -181,6 +231,7 @@ function pose(M, a, p) {
       aim(B['calf_' + s], B['foot_' + s], frontDir(leg, m));
       aim(B['foot_' + s], B['ball_' + s], sag(100, m * .25));
     });
+    grip(M); applyGrip(M, a, p);
     return;
   }
   const t = p.torso;
@@ -198,7 +249,7 @@ function pose(M, a, p) {
     aim(B['calf_' + s], B['foot_' + s], sag(sh, m * .03));
     aim(B['foot_' + s], B['ball_' + s], sag((ft ?? 90) + 14, m * .12));
   };
-  grip(M);
+  grip(M); applyGrip(M, a, p);
   leg('r', -1, p.thigh, p.shin, p.foot);
   leg('l', 1, p.thigh2 ?? p.thigh, p.shin2 ?? p.shin, p.foot2 ?? p.foot);
 }
@@ -228,6 +279,7 @@ function dropY(M, a) {
   const A = a.A;
   // Roikkuu tangossa tai nojaa dippitelineeseen: jalat irti lattiasta
   if (A.anchor === 'hands' && ((a.prop === 'bar' && A.at[1] < 80) || a.prop === 'bars')) return .12 - Math.min(feet(), y('calf_l') - .05, y('calf_r') - .05);
+  if (a.seat === 'low') return .4 - y('pelvis');
   if (a.bench || a.seat || A.anchor === 'hip' && a.prop === 'bench' || a.prop === 'hyper') {
     const shinDown = Math.abs((A.shin ?? 180) - 180) < 40;
     return shinDown ? -feet() : .62 - y('pelvis');
@@ -242,7 +294,9 @@ const MAT = {
   pad: new THREE.MeshStandardMaterial({ color: 0x2b2e33, metalness: 0, roughness: .8 }),
   mat: new THREE.MeshStandardMaterial({ color: 0xb9c0c8, roughness: .9 }),
   matEdge: new THREE.MeshStandardMaterial({ color: 0x8e96a0, roughness: .9 }),
-  cable: new THREE.MeshBasicMaterial({ color: 0x222222 })
+  cable: new THREE.MeshBasicMaterial({ color: 0x222222 }),
+  frame: new THREE.MeshStandardMaterial({ color: 0xd4d8dd, metalness: .35, roughness: .45 }),
+  stack: new THREE.MeshStandardMaterial({ color: 0x2a2d31, metalness: .3, roughness: .5 })
 };
 function radTex(stops) {
   const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
@@ -265,19 +319,24 @@ function makeKettle() { const g = new THREE.Group(); const s = new THREE.Mesh(ne
 function buildProps(M, a, scene) {
   const g = new THREE.Group(); scene.add(g);
   const dyn = []; // päivittyvät joka kuvassa
-  const hands = () => [wp(M, 'hand_l'), wp(M, 'hand_r')];
+  const hands = () => [gripPoint(M, 'l'), gripPoint(M, 'r')];
+  const X = new THREE.Vector3(1, 0, 0);
+  // Tanko kulkee molempien nyrkkien läpi
+  const alignBar = (obj, l, r) => { obj.position.copy(l).add(r).multiplyScalar(.5); const d = r.clone().sub(l); if (d.lengthSq() > .01) obj.quaternion.setFromUnitVectors(X, d.normalize().multiplyScalar(-1)); };
+  // Käsipainon kahva kulkee kämmenen poikki (etusormen tyvestä pikkusormen tyveen)
+  const across = s => wp(M, 'index_01_' + s).sub(wp(M, 'pinky_01_' + s)).normalize();
   const pr = a.prop || '';
   if (pr.startsWith('barbell') && pr !== 'barbellfront') {
     const heavy = /squat|deadlift|hinge|bench|bentrow/.test(a.key || '') || pr !== 'barbell';
     const bb = makeBarbell(!heavy); g.add(bb);
     dyn.push(() => {
       if (pr === 'barbell@shoulder') { const s = wp(M, 'spine_03'), n = wp(M, 'neck_01'); bb.position.copy(n).lerp(s, .35); bb.position.z -= .08; }
-      else { const [l, r] = hands(); bb.position.copy(l).add(r).multiplyScalar(.5); }
+      else { const [l, r] = hands(); alignBar(bb, l, r); }
     });
   }
-  if (pr === 'barbellfront') { const bb = makeBarbell(); bb.scale.set(.6, 1, 1); g.add(bb); dyn.push(() => { const [l, r] = hands(); bb.position.copy(l).add(r).multiplyScalar(.5); }); }
-  if (pr === 'dumbbell') { const d = [makeDumbbell(), makeDumbbell()]; d.forEach(x => g.add(x)); dyn.push(() => { const h = hands(); d.forEach((x, i) => x.position.copy(h[i])); }); }
-  if (pr === 'kettlebell') { const k = makeKettle(); g.add(k); dyn.push(() => { const [l, r] = hands(); k.position.copy(l).add(r).multiplyScalar(.5); }); }
+  if (pr === 'barbellfront') { const bb = makeBarbell(true); g.add(bb); dyn.push(() => { const [l, r] = hands(); alignBar(bb, l, r); }); }
+  if (pr === 'dumbbell') { const d = [makeDumbbell(), makeDumbbell()]; d.forEach(x => g.add(x)); dyn.push(() => { const h = hands(); d.forEach((x, i) => { x.position.copy(h[i]); x.quaternion.setFromUnitVectors(X, across(i ? 'r' : 'l')); }); }); }
+  if (pr === 'kettlebell') { const k = makeKettle(); g.add(k); dyn.push(() => { const [l, r] = hands(); k.position.copy(l).add(r).multiplyScalar(.5).add(new THREE.Vector3(0, .03, 0)); }); }
   if (pr === 'wheel') { const w = cyl(.1, .06, MAT.black); g.add(w); dyn.push(() => { const [l, r] = hands(); w.position.copy(l).add(r).multiplyScalar(.5); w.position.y = .1; }); }
   return { g, dyn };
 }
@@ -303,27 +362,30 @@ function buildStatic(M, a, scene, A0) {
       const zs = [P('pelvis').z, P('spine_03').z, P('Head').z];
       const z0 = Math.min(...zs) - .12, z1 = Math.max(...zs) + .25, len = Math.max(.5, z1 - z0);
       const b = box(.32, .07, len, MAT.pad); b.position.set(0, sup - .035, (z0 + z1) / 2); g.add(b);
-      [z0 + .1, z1 - .1].forEach(z => { const l = box(.05, sup - .07, .05, MAT.metal); l.position.set(0, (sup - .07) / 2, z); g.add(l); });
+      [z0 + .1, z1 - .1].forEach(z => { const l = box(.06, sup - .07, .32, MAT.frame); l.position.set(0, (sup - .07) / 2, z); g.add(l); });
     }
   }
-  if (a.seat) {
+  if (a.seat === 'low') {
+    const y = Math.max(.12, P('pelvis').y - .1), sb = box(.36, y, .5, MAT.pad); sb.position.set(0, y / 2, P('pelvis').z - .02); g.add(sb);
+  } else if (a.seat) {
     const y = P('pelvis').y - .1;
     const s = box(.4, .06, .4, MAT.pad); s.position.set(0, y - .03, P('pelvis').z + .02); g.add(s);
     const l = box(.06, y - .06, .06, MAT.metal); l.position.set(0, (y - .06) / 2, P('pelvis').z); g.add(l);
     if (a.seat === 'recline') { const bk = box(.4, .06, .7, MAT.pad); const s0 = P('pelvis'), e = P('spine_03'); bk.position.copy(s0).lerp(e, .5); bk.position.y -= .12; bk.lookAt(new THREE.Vector3(e.x, e.y - .12, e.z)); g.add(bk); }
   }
   if (a.prop === 'bar') {
-    const h = P('hand_r'), bar = cyl(.017, 1.3, MAT.metal); bar.position.set(0, h.y + .02, h.z); g.add(bar);
-    [-.62, .62].forEach(x => { const post = cyl(.03, h.y + .02, MAT.metal, 'y'); post.position.set(x, (h.y + .02) / 2, h.z - .05); g.add(post); });
+    const h = P('gp_r'), bar = cyl(.016, 1.4, MAT.metal); bar.position.set(0, h.y, h.z); g.add(bar);
+    [-.66, .66].forEach(x => { const post = box(.06, h.y + .05, .06, MAT.frame); post.position.set(x, (h.y + .05) / 2, h.z - .04); g.add(post); const foot = box(.08, .03, .7, MAT.frame); foot.position.set(x, .015, h.z - .04); g.add(foot); });
   }
   if (a.prop === 'bars') {
-    const h = P('hand_r');
+    const h = P('gp_r');
     [-.27, .27].forEach(x => { const r = cyl(.02, .9, MAT.metal, 'z'); r.position.set(x, h.y - .02, h.z + .1); g.add(r); const post = cyl(.025, h.y, MAT.metal, 'y'); post.position.set(x, h.y / 2, h.z - .3); g.add(post); });
   }
   if (a.prop === 'hyper') { const pad = box(.4, .1, .35, MAT.pad); const p = P('pelvis'); pad.position.set(0, p.y - .13, p.z + .05); g.add(pad); const l = box(.06, p.y - .18, .06, MAT.metal); l.position.set(0, (p.y - .18) / 2, p.z); g.add(l); }
   if (a.prop === 'sled') { const f = P('ball_r'), pl = box(.45, .4, .04, MAT.metal); pl.position.set(0, f.y + .05, f.z + .06); pl.rotation.x = -.6; g.add(pl); }
   return g;
 }
+const across2 = (M, s) => wp(M, 'index_01_' + s).sub(wp(M, 'pinky_01_' + s)).normalize();
 function buildCable(M, a, scene, A0, k) {
   if (!a.cable) return null;
   const mk = () => { const m = new THREE.Mesh(new THREE.CylinderGeometry(.004, .004, 1, 6), MAT.cable); scene.add(m); return m; };
@@ -335,9 +397,22 @@ function buildCable(M, a, scene, A0, k) {
     const d2 = [a.cable[0] - 110, MQ.GROUND - a.cable[1]];
     pul.push({ p: new THREE.Vector3(0, Math.max(.1, d2[1] * k), A0.pelvis.z + d2[0] * k), n: 'hand_r', m: mk() });
   }
-  pul.forEach(c => { const st = box(.12, .12, .12, MAT.black); st.position.copy(c.p); scene.add(st); });
+  // Taljatorni: pystypalkit, yläpalkki, väkipyörä ja painopakka
+  pul.forEach(c => {
+    const t = new THREE.Group(), side = c.p.x === 0 ? .55 : c.p.x, zB = c.p.x === 0 ? c.p.z + (c.p.z >= A0.pelvis.z ? .42 : -.42) : c.p.z;
+    [-.17, .17].forEach(dx => { const col = box(.06, 2.25, .06, MAT.frame); col.position.set(side + dx, 1.125, zB); t.add(col); });
+    const top = box(.42, .07, .1, MAT.frame); top.position.set(side, 2.25, zB); t.add(top);
+    const stack = box(.26, .7, .1, MAT.stack); stack.position.set(side, .45, zB); t.add(stack);
+    for (let i = 0; i < 9; i++) { const ln = box(.27, .006, .105, MAT.black); ln.position.set(side, .12 + i * .075, zB); t.add(ln); }
+    const base = box(.6, .05, .5, MAT.frame); base.position.set(side, .025, zB); t.add(base);
+    const arm = box(.05, .05, Math.abs(zB - c.p.z) + .05, MAT.frame); arm.position.set(c.p.x || 0, c.p.y, (zB + c.p.z) / 2); if (c.p.x === 0) t.add(arm);
+    const wheel = new THREE.Mesh(new THREE.TorusGeometry(.045, .014, 10, 24), MAT.metal); wheel.position.copy(c.p); wheel.rotation.y = Math.PI / 2; t.add(wheel);
+    scene.add(t);
+    c.handle = new THREE.Mesh(new THREE.TorusGeometry(.055, .009, 8, 24), MAT.metal); scene.add(c.handle);
+  });
   return () => pul.forEach(c => {
-    const h = wp(M, c.n), mid = h.clone().add(c.p).multiplyScalar(.5), len = h.distanceTo(c.p);
+    const s = c.n === 'hand_l' ? 'l' : 'r', h = gripPoint(M, s);
+    c.handle.position.copy(h); c.handle.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), across2(M, s)); const mid = h.clone().add(c.p).multiplyScalar(.5), len = h.distanceTo(c.p);
     c.m.position.copy(mid); c.m.scale.set(1, len, 1); c.m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), c.p.clone().sub(h).normalize());
   });
 }
@@ -366,6 +441,7 @@ async function setup(ex, sex, w, h) {
   const dy = dropY(M, a);
   M.root.position.y = dy; M.root.updateMatrixWorld(true);
   const A0 = {}; ['pelvis', 'spine_03', 'Head', 'hand_r', 'hand_l', 'ball_r', anchor].forEach(n => A0[n] = wp(M, n));
+  A0.gp_r = gripPoint(M, 'r'); A0.gp_l = gripPoint(M, 'l');
   const target = A0[anchor].clone();
   const k = (wp(M, 'neck_01').distanceTo(wp(M, 'pelvis'))) / MQ.L.torso;
   buildStatic(M, a, scene, A0);

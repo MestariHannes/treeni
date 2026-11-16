@@ -1,5 +1,5 @@
 /* Offline-tuki: sovelluksen tiedostot välimuistiin, liikepankki ja kuvat välimuistiin ensimmäisellä latauksella. */
-const V = 'treeni-v10';
+const V = 'treeni-v11';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'muscles.js', 'names-fi.js', 'programs.js', 'ohjeet-fi.js', 'mannequin.js', 'human3d.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', e => {
