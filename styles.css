@@ -576,7 +576,9 @@ body { padding-bottom: calc(var(--tab-h) + var(--safe-b) + 36px); }
 .cta:active, .menu button:active, .card:active, .quick button:active, .mg:active { transform: scale(.97); transition: transform .1s; }
 @media (prefers-reduced-motion: reduce) { .ring .fg, .sets tr.pop td, .tabs button.bump svg, .go-btn::after, .today .today-3d, .toplist li, .menu button { animation: none !important; } }
 /* 3D-studio: vihreä tausta ja valokeila */
-.anim, .card .img { background: radial-gradient(70% 60% at 50% 30%, #2e4314 0%, #142009 60%, #0b1206 100%) !important; box-shadow: none; }
+/* Kuvitustausta (Lyfta-esikuva): vaalea myös tummissa teemoissa, jotta kuvitus erottuu */
+.anim, .card .img { background: linear-gradient(180deg, #F6F6F9 0%, #ECECF1 100%) !important; box-shadow: none; }
+.th { background: #F1F1F5; }
 .anim-bar span { color: var(--muted); }
 
 .anim canvas { cursor: grab; }
