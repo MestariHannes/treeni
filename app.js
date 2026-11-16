@@ -3,18 +3,23 @@
   'use strict';
   const DB_URL = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
   const IMG = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
-  const KEY = 'treeni.v1';
+  const KEY = 'treeni.v1'; // avain pidetään samana, jotta vanhat tiedot säilyvät
+  const VERSION = '2.0';
   const PAGE = 30;
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   /* ---------- Tila ---------- */
-  let S = { active: null, history: [], rest: 90, favs: [] };
+  /* Tietorakenne (schema 2). profile on suunniteltu niin, että tuleva AI-koutsi voi lukea sen sellaisenaan:
+     profile = { v, name, goal, level, daysPerWeek, equipment, heightCm, weightKg, created, updated }
+     bodyLog = [{ ts, kg }]   templates = [{ id, name, items: [{ id, sets, reps }] }]
+     history = [{ start, end, templateId, name, items: [{ id, sets: [{ kg, reps }] }] }] */
+  let S = { schema: 2, active: null, history: [], rest: 90, favs: [], profile: null, bodyLog: [], templates: [], lastBackup: 0 };
   try { S = Object.assign(S, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) {}
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
 
   let DB = [], BY = new Map();
-  const ui = { side: 'front', sel: new Set(), q: '', equip: '', shown: PAGE, view: 'muscles' };
+  const ui = { side: 'front', sel: new Set(), q: '', equip: '', shown: PAGE, view: 'home', pick: null };
 
   /* ---------- Apufunktiot ---------- */
   const nameOf = e => FI.names[e.id] || e.name;
@@ -46,7 +51,7 @@
       $('#count').textContent = 'Liikkeitä ei saatu ladattua. Tarkista nettiyhteys ja avaa sovellus uudelleen.';
       return;
     }
-    renderList(); renderWorkout(); renderHistory();
+    renderList(); renderWorkout(); renderHistory(); renderHome();
   }
 
   /* ---------- Lihakset-näkymä ---------- */
@@ -199,13 +204,21 @@
   document.addEventListener('keydown', ev => { if (ev.key === 'Escape') closeSheet(); });
 
   /* ---------- Treeni ---------- */
-  function addToWorkout(id) {
+  function addToWorkout(id, opt = {}) {
     if (!S.active) S.active = { start: Date.now(), items: [] };
-    if (S.active.items.some(i => i.id === id)) { toast('Liike on jo treenissä'); return; }
+    if (S.active.items.some(i => i.id === id)) { if (!opt.quiet) toast('Liike on jo treenissä'); return; }
     const prev = lastSets(id);
-    const n = Math.max(3, prev.length);
-    S.active.items.push({ id, sets: Array.from({ length: n }, () => ({ kg: '', reps: '', done: false })) });
-    save(); renderWorkout(); toast(`Lisätty: ${nameOf(BY.get(id))}`);
+    const n = opt.sets || Math.max(3, prev.length);
+    S.active.items.push({ id, reps: opt.reps || '', sets: Array.from({ length: n }, () => ({ kg: '', reps: '', done: false })) });
+    save(); renderWorkout(); renderHome();
+    if (!opt.quiet) toast(`Lisätty: ${BY.get(id) ? nameOf(BY.get(id)) : id}`);
+  }
+  // Valmis ohjelma tai oma pohja: { id, name, items: [{ id, sets, reps }] }
+  function startTemplate(t) {
+    if (S.active && S.active.items.length) { toast('Treeni on jo käynnissä'); return go('workout'); }
+    S.active = { start: Date.now(), items: [], templateId: t.id, name: t.name };
+    t.items.forEach(it => addToWorkout(it.id, { sets: it.sets, reps: it.reps, quiet: true }));
+    save(); go('workout'); toast(`${t.name}: tsemppiä!`);
   }
   let finishArmed = false;
   function renderWorkout() {
@@ -220,22 +233,22 @@
       return;
     }
     box.innerHTML = `
-      <div class="wo-head"><h2>Treeni</h2><span id="elapsed"></span></div>
+      <div class="wo-head"><h2>${esc(S.active.name || 'Treeni')}</h2><span id="elapsed"></span></div>
       <div class="rest-row">Lepoaika sarjojen välissä
         <select id="restSel">${[0, 30, 60, 90, 120, 150, 180, 240].map(s => `<option value="${s}" ${s === S.rest ? 'selected' : ''}>${s ? (s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : s + ' s') : 'Ei ajastinta'}</option>`).join('')}</select></div>
       ${S.active.items.map((it, xi) => {
         const e = BY.get(it.id); const prev = lastSets(it.id);
         return `<div class="ex" data-xi="${xi}">
-          <div class="ex-h"><img src="${img(e)}" alt=""><div class="nm" data-ex="${esc(it.id)}">${esc(e ? nameOf(e) : it.id)}</div><button data-rmex="${xi}" aria-label="Poista liike">✕</button></div>
+          <div class="ex-h"><img src="${img(e)}" alt=""><div class="nm" data-ex="${esc(it.id)}">${esc(e ? nameOf(e) : it.id)}${it.reps ? `<small>Tavoite ${it.sets.length} × ${esc(it.reps)}</small>` : ''}</div><button data-rmex="${xi}" aria-label="Poista liike">✕</button></div>
           <table class="sets"><thead><tr><th>Sarja</th><th>Edellinen</th><th>kg</th><th>Toistot</th><th>✓</th></tr></thead><tbody>
           ${it.sets.map((s, si) => {
             const p = prev[si];
             const b = it.sets[si - 1];
-            const ph = p || (b && b.reps ? b : null); // ehdotus: viime kerta tai edellinen sarja
+            const ph = p || (b && b.reps ? b : null) || (it.reps ? { kg: null, reps: parseInt(it.reps, 10) } : null); // ehdotus: viime kerta, edellinen sarja tai tavoite
             return `<tr class="${s.done ? 'done' : ''}" data-si="${si}">
               <td class="n">${si + 1}</td>
               <td class="prev">${p ? `${fmt(+p.kg || 0)}×${+p.reps || 0}` : '–'}</td>
-              <td><input inputmode="decimal" data-f="kg" value="${esc(s.kg)}" placeholder="${ph ? fmt(+ph.kg || 0) : 'kg'}"></td>
+              <td><input inputmode="decimal" data-f="kg" value="${esc(s.kg)}" placeholder="${ph && ph.kg != null ? fmt(+ph.kg || 0) : 'kg'}"></td>
               <td><input inputmode="numeric" data-f="reps" value="${esc(s.reps)}" placeholder="${ph ? +ph.reps || 0 : '0'}"></td>
               <td><button class="ok" data-ok>✓</button></td></tr>`;
           }).join('')}
@@ -243,6 +256,7 @@
           <button class="addset" data-addset="${xi}">+ Lisää sarja</button></div>`;
       }).join('')}
       <button class="cta alt" data-go="muscles">+ Lisää liike</button>
+      <button class="cta alt" id="saveTpl">Tallenna pohjaksi</button>
       <button class="cta" id="finish">${finishArmed ? 'Vahvista: tallenna ja lopeta' : 'Lopeta treeni'}</button>
       <button class="cta alt" id="discard" style="color:var(--danger)">Hylkää treeni</button>`;
     tickElapsed();
@@ -288,12 +302,17 @@
       if (!finishArmed) { finishArmed = true; renderWorkout(); setTimeout(() => { finishArmed = false; if (ui.view === 'workout') renderWorkout(); }, 4000); return; }
       finishArmed = false;
       const items = S.active.items.map(i => ({ id: i.id, sets: i.sets.filter(s => s.done).map(s => ({ kg: +s.kg || 0, reps: +s.reps || 0 })) })).filter(i => i.sets.length);
-      if (items.length) { S.history.push({ start: S.active.start, end: Date.now(), items }); toast('Treeni tallennettu 💪'); }
+      if (items.length) { S.history.push({ start: S.active.start, end: Date.now(), templateId: S.active.templateId || null, name: S.active.name || null, items }); toast('Treeni tallennettu 💪'); }
       else toast('Ei tehtyjä sarjoja, treeniä ei tallennettu');
-      S.active = null; stopRest(); save(); renderWorkout(); renderHistory(); go('history'); return;
+      S.active = null; stopRest(); save(); renderWorkout(); renderHistory(); renderHome(); go('home'); return;
+    }
+    if (t.id === 'saveTpl') {
+      const name = (prompt('Pohjan nimi', S.active.name || 'Oma treeni') || '').trim(); if (!name) return;
+      S.templates.push({ id: 'own-' + Date.now(), name, items: S.active.items.map(i => ({ id: i.id, sets: i.sets.length, reps: i.reps || '' })) });
+      save(); renderHome(); toast(`Pohja tallennettu: ${name}`); return;
     }
     if (t.id === 'discard') {
-      if (t.dataset.armed) { S.active = null; stopRest(); save(); renderWorkout(); toast('Treeni hylätty'); return; }
+      if (t.dataset.armed) { S.active = null; stopRest(); save(); renderWorkout(); renderHome(); toast('Treeni hylätty'); return; }
       t.dataset.armed = '1'; t.textContent = 'Vahvista hylkäys'; setTimeout(() => { if (t.isConnected) { delete t.dataset.armed; t.textContent = 'Hylkää treeni'; } }, 4000);
     }
   });
@@ -338,8 +357,174 @@
       ${prs.length ? `<h3 class="section-t">Ennätykset</h3><div class="prs">${prs.map(x => `<button class="pr" data-ex="${esc(x.id)}" style="text-align:left;width:100%">${esc(BY.get(x.id) ? nameOf(BY.get(x.id)) : x.id)} <b>${fmt(x.r.maxKg)} kg × ${x.r.maxKgReps}</b></button>`).join('')}</div>` : ''}
       <h3 class="section-t">Treenit</h3>
       ${S.history.slice().reverse().map(w => `<div class="hist"><div class="d">${date(w.start)} <span>${dur(w.end - w.start)}</span></div>
-        <ul>${w.items.map(i => `<li>${esc(BY.get(i.id) ? nameOf(BY.get(i.id)) : i.id)}: ${i.sets.map(s => `${fmt(s.kg)}×${s.reps}`).join(', ')}</li>`).join('')}</ul></div>`).join('')}`;
+        ${w.name ? `<div class="wn">${esc(w.name)}</div>` : ''}<ul>${w.items.map(i => `<li>${esc(BY.get(i.id) ? nameOf(BY.get(i.id)) : i.id)}: ${i.sets.map(s => `${fmt(s.kg)}×${s.reps}`).join(', ')}</li>`).join('')}</ul></div>`).join('')}`;
   }
+
+  /* ---------- Viikot ja putki ---------- */
+  const DAY = 864e5;
+  function weekStart(ts) { const d = new Date(ts); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return d; }
+  function weekCount(d) { const a = d.getTime(), e = new Date(d); e.setDate(e.getDate() + 7); return S.history.filter(w => w.start >= a && w.start < e.getTime()).length; }
+  function streak(target) {
+    const w = weekStart(Date.now()); let n = 0;
+    if (weekCount(w) >= target) n++;
+    for (;;) { w.setDate(w.getDate() - 7); if (weekCount(w) >= target) n++; else break; }
+    return n;
+  }
+  function program() { return S.profile ? Programs.forProfile(S.profile) : null; }
+
+  /* ---------- Koti ---------- */
+  function ring(done, target) {
+    const r = 34, c = 2 * Math.PI * r, f = Math.min(1, done / target);
+    return `<svg class="ring" viewBox="0 0 84 84"><circle cx="42" cy="42" r="${r}" class="bg"/>
+      <circle cx="42" cy="42" r="${r}" class="fg" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - f)}"/>
+      <text x="42" y="47">${done}/${target}</text></svg>`;
+  }
+  function tplCard(t, sub) {
+    return `<div class="plan">
+      <div class="plan-h"><div><h3>${esc(t.name)}</h3>${sub ? `<span>${esc(sub)}</span>` : ''}</div></div>
+      <ul>${t.items.map(i => { const e = BY.get(i.id); return `<li data-ex="${esc(i.id)}"><img loading="lazy" src="${img(e)}" alt=""><span>${esc(e ? nameOf(e) : (FI.names[i.id] || i.id))}</span><b>${i.sets} × ${esc(i.reps || '–')}</b></li>`; }).join('')}</ul>
+      <button class="cta" data-start="${esc(t.id)}">Aloita treeni</button></div>`;
+  }
+  function findTpl(id) {
+    const p = program();
+    return (p && p.sessions.find(s => s.id === id)) || S.templates.find(t => t.id === id);
+  }
+  function renderHome() {
+    const box = $('#home'); if (!box) return;
+    if (!S.profile) { box.innerHTML = '<div class="empty"><h2>Tervetuloa</h2><p>Luo profiili, niin saat oman treeniohjelman.</p><button class="cta" id="obOpen">Aloita</button></div>'; return; }
+    const P = S.profile, prog = program(), g = Programs.GOALS[P.goal] || Programs.GOALS.muscle;
+    const target = +P.daysPerWeek || 3, ws = weekStart(Date.now()), done = weekCount(ws), st = streak(target);
+    const now = new Date(), h = now.getHours();
+    const hello = h < 5 ? 'Hyvää yötä' : h < 10 ? 'Huomenta' : h < 17 ? 'Hei' : 'Iltaa';
+    const days = ['ma', 'ti', 'ke', 'to', 'pe', 'la', 'su'].map((n, i) => {
+      const d = new Date(ws); d.setDate(d.getDate() + i); const a = d.getTime();
+      const has = S.history.some(w => w.start >= a && w.start < a + DAY);
+      const today = d.toDateString() === now.toDateString();
+      return `<span class="${has ? 'on' : ''} ${today ? 'today' : ''}">${n}</span>`;
+    }).join('');
+    const nxt = (ui.pick && findTpl(ui.pick)) || Programs.next(prog, S.history);
+    const last = S.history[S.history.length - 1];
+    const left = Math.max(0, target - done);
+    const msg = done >= target ? 'Viikon tavoite täynnä. Hienoa!' : done ? `Vielä ${left} ${left === 1 ? 'treeni' : 'treeniä'} tavoitteeseen.` : 'Uusi viikko, uudet treenit.';
+    const needBackup = S.history.length >= 5 && Date.now() - (S.lastBackup || 0) > 30 * DAY;
+    box.innerHTML = `
+      <div class="hello"><p>${now.toLocaleDateString('fi-FI', { weekday: 'long', day: 'numeric', month: 'numeric' })}</p><h2>${hello}, ${esc(P.name)}!</h2></div>
+      ${S.active ? `<button class="banner" data-go="workout"><b>Treeni käynnissä</b><span>${esc(S.active.name || 'Oma treeni')} · ${S.active.items.length} liikettä</span><i>Jatka →</i></button>` : ''}
+      <div class="week">
+        ${ring(done, target)}
+        <div class="week-t"><h3>Tämä viikko</h3><p>${msg}</p><div class="days">${days}</div></div>
+      </div>
+      <div class="stats">
+        <div class="stat"><b>${st}</b><span>viikon putki</span></div>
+        <div class="stat"><b>${S.history.length}</b><span>treeniä yhteensä</span></div>
+        <div class="stat txt"><b>${esc(g.name)}</b><span>tavoite</span></div></div>
+      ${needBackup ? '<button class="banner warn" data-backup><b>Ota varmuuskopio</b><span>Tiedot ovat vain tässä puhelimessa.</span><i>Vie →</i></button>' : ''}
+      <h3 class="section-t">Seuraava treeni</h3>
+      <div class="chips picks">${prog.sessions.map(s => `<button class="chip ${s.id === nxt.id ? '' : 'ghost'}" data-pick="${esc(s.id)}">${esc(s.name)}</button>`).join('')}
+        ${S.templates.map(t => `<button class="chip ${t.id === nxt.id ? '' : 'ghost'}" data-pick="${esc(t.id)}">★ ${esc(t.name)}</button>`).join('')}</div>
+      ${tplCard(nxt, nxt.id.startsWith('own-') ? 'Oma pohja' : `${prog.name} · ${g.name.toLowerCase()} · lepo ${g.rest} s`)}
+      ${nxt.id.startsWith('own-') ? `<button class="linkbtn" data-deltpl="${esc(nxt.id)}">Poista pohja</button>` : ''}
+      <h3 class="section-t">Viimeisin treeni</h3>
+      ${last ? `<div class="hist"><div class="d">${date(last.start)} <span>${dur(last.end - last.start)}</span></div>${last.name ? `<div class="wn">${esc(last.name)}</div>` : ''}
+        <ul>${last.items.map(i => `<li>${esc(BY.get(i.id) ? nameOf(BY.get(i.id)) : (FI.names[i.id] || i.id))}: ${i.sets.map(s => `${fmt(s.kg)}×${s.reps}`).join(', ')}</li>`).join('')}</ul></div>`
+        : '<p class="empty small">Ensimmäinen treeni odottaa. Valitse yllä oleva treeni tai etsi liikkeitä lihaskartalta.</p>'}
+      <button class="cta alt" data-go="muscles">Etsi liikkeitä lihaskartalta</button>`;
+  }
+  $('#home').addEventListener('click', ev => {
+    const t = ev.target;
+    if (t.closest('#obOpen')) return openOnboard();
+    if (t.closest('[data-go]')) return go(t.closest('[data-go]').dataset.go);
+    if (t.closest('[data-backup]')) return exportData();
+    const pk = t.closest('[data-pick]'); if (pk) { ui.pick = pk.dataset.pick; return renderHome(); }
+    const sb = t.closest('[data-start]'); if (sb) { const tp = findTpl(sb.dataset.start); if (tp) startTemplate(tp); return; }
+    const dl = t.closest('[data-deltpl]');
+    if (dl) {
+      if (!dl.dataset.armed) { dl.dataset.armed = '1'; dl.textContent = 'Vahvista: poista pohja'; return; }
+      S.templates = S.templates.filter(x => x.id !== dl.dataset.deltpl); ui.pick = null; save(); renderHome(); toast('Pohja poistettu');
+    }
+  });
+
+  /* ---------- Profiili ---------- */
+  function renderAvatar() {
+    const b = $('#profileBtn'); b.textContent = S.profile ? (S.profile.name || '?').trim().charAt(0).toUpperCase() : '?';
+  }
+  const opts = (name, map, val) => Object.entries(map).map(([k, v]) =>
+    `<label class="opt"><input type="radio" name="${name}" value="${esc(k)}" ${String(val) === String(k) ? 'checked' : ''}><span>${esc(v)}</span></label>`).join('');
+  function profileForm(p, submit) {
+    p = p || {};
+    const goals = Object.fromEntries(Object.entries(Programs.GOALS).map(([k, v]) => [k, v.name]));
+    return `<form class="pform" id="pform" autocomplete="off">
+      <label class="fld"><span>Nimi</span><input name="name" required maxlength="30" value="${esc(p.name || '')}" placeholder="Etunimi"></label>
+      <fieldset><legend>Tavoite</legend><div class="opts">${opts('goal', goals, p.goal || 'muscle')}</div></fieldset>
+      <fieldset><legend>Kokemus</legend><div class="opts">${opts('level', Programs.LEVELS, p.level || 'beginner')}</div></fieldset>
+      <fieldset><legend>Treenejä viikossa</legend><div class="opts">${opts('daysPerWeek', { 2: '2', 3: '3', 4: '4', 5: '5', 6: '6' }, p.daysPerWeek || 3)}</div></fieldset>
+      <fieldset><legend>Missä treenaat</legend><div class="opts">${opts('equipment', Programs.EQUIP, p.equipment || 'gym')}</div></fieldset>
+      <div class="two">
+        <label class="fld"><span>Pituus (cm) <i>vapaaehtoinen</i></span><input name="heightCm" inputmode="numeric" value="${esc(p.heightCm || '')}"></label>
+        <label class="fld"><span>Paino (kg) <i>vapaaehtoinen</i></span><input name="weightKg" inputmode="decimal" value="${esc(p.weightKg || '')}"></label>
+      </div>
+      <p class="note">Tiedot tallentuvat vain tähän laitteeseen. Ohjelma muodostetaan tavoitteen, kokemuksen, treenipäivien ja välineiden mukaan.</p>
+      <button class="cta" type="submit">${submit}</button></form>`;
+  }
+  function readForm(f) {
+    const d = new FormData(f), num = k => { const v = parseFloat(String(d.get(k) || '').replace(',', '.')); return v > 0 ? v : null; };
+    const old = S.profile || {};
+    const p = { v: 1, name: String(d.get('name') || '').trim(), goal: d.get('goal'), level: d.get('level'), daysPerWeek: +d.get('daysPerWeek'),
+      equipment: d.get('equipment'), heightCm: num('heightCm'), weightKg: num('weightKg'), created: old.created || Date.now(), updated: Date.now() };
+    if (p.weightKg && p.weightKg !== old.weightKg) S.bodyLog.push({ ts: Date.now(), kg: p.weightKg });
+    if (p.goal !== old.goal) S.rest = (Programs.GOALS[p.goal] || {}).rest || S.rest;
+    S.profile = p; ui.pick = null; save(); renderAvatar(); renderHome();
+  }
+  function openOnboard() {
+    const o = $('#onboard');
+    o.innerHTML = `<div class="ob-in"><h1 class="brand">TREENI<span>.</span></h1>
+      <h2>Tehdään sinulle ohjelma</h2><p class="lead">Kerro vähän itsestäsi. Voit muuttaa näitä myöhemmin profiilista.</p>
+      ${profileForm(S.profile, 'Valmis, aloitetaan')}</div>`;
+    o.hidden = false;
+    $('#pform', o).addEventListener('submit', ev => { ev.preventDefault(); readForm(ev.target); o.hidden = true; go('home'); toast('Profiili tallennettu'); });
+  }
+  function openProfile() {
+    if (!S.profile) return openOnboard();
+    const card = $('#sheetCard');
+    card.innerHTML = `<div class="sheet-top"><h3>Profiili</h3><button class="x" data-close aria-label="Sulje">✕</button></div>
+      <div class="pane">${profileForm(S.profile, 'Tallenna')}
+        <h4>Varmuuskopio</h4>
+        <p class="note">Tiedot ovat vain tässä laitteessa. Vie ne tiedostoksi säännöllisesti ja aina ennen puhelimen vaihtoa.${S.lastBackup ? ` Viimeksi ${date(S.lastBackup)}.` : ''}</p>
+        <div class="two"><button class="cta alt" type="button" data-export>Vie tiedot</button><button class="cta alt" type="button" data-import>Tuo tiedot</button></div>
+        <p class="note">TREENI ${VERSION} · liikkeet: free-exercise-db</p></div>`;
+    $('#sheet').hidden = false;
+    $('#pform', card).addEventListener('submit', ev => { ev.preventDefault(); readForm(ev.target); closeSheet(); toast('Profiili päivitetty'); });
+    card.querySelector('[data-export]').addEventListener('click', exportData);
+    card.querySelector('[data-import]').addEventListener('click', () => $('#importFile').click());
+  }
+  $('#profileBtn').addEventListener('click', openProfile);
+
+  /* ---------- Varmuuskopio ---------- */
+  function exportData() {
+    const name = `treeni-varmuuskopio-${new Date().toISOString().slice(0, 10)}.json`;
+    const blob = new Blob([JSON.stringify({ app: 'treeni', schema: 2, exported: new Date().toISOString(), state: S }, null, 1)], { type: 'application/json' });
+    const file = typeof File === 'function' ? new File([blob], name, { type: 'application/json' }) : null;
+    const done = () => { S.lastBackup = Date.now(); save(); renderHome(); };
+    if (file && matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: 'Treeni-varmuuskopio' }).then(done).catch(() => {});
+    } else {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      done(); toast('Varmuuskopio ladattu');
+    }
+  }
+  $('#importFile').addEventListener('change', async ev => {
+    const f = ev.target.files[0]; ev.target.value = ''; if (!f) return;
+    try {
+      const d = JSON.parse(await f.text()), st = d && d.state;
+      if (!st || !Array.isArray(st.history)) throw new Error('muoto');
+      if (!confirm(`Korvataanko nykyiset tiedot varmuuskopiolla? Siinä on ${st.history.length} treeniä${st.profile ? ` (${st.profile.name})` : ''}.`)) return;
+      S = Object.assign({ schema: 2, active: null, history: [], rest: 90, favs: [], profile: null, bodyLog: [], templates: [], lastBackup: 0 }, st);
+      save(); closeSheet(); renderAvatar(); renderWorkout(); renderHistory(); renderHome(); renderList(); go('home');
+      toast('Tiedot palautettu');
+      if (!S.profile) openOnboard();
+    } catch (e) { toast('Tiedostoa ei voitu lukea'); }
+  });
 
   /* ---------- Navigointi ---------- */
   function go(v) {
@@ -348,6 +533,7 @@
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
     if (v === 'workout') renderWorkout();
     if (v === 'history') renderHistory();
+    if (v === 'home') renderHome();
     window.scrollTo(0, 0);
   }
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
@@ -356,6 +542,7 @@
   // Linkillä voi esivalita lihakset, esim. #m=chest,shoulders
   const hm = /m=([^&]+)/.exec(location.hash);
   if (hm) decodeURIComponent(hm[1]).split(',').filter(m => Muscles.NAMES[m]).forEach(m => ui.sel.add(m));
-  renderMap(); renderWorkout(); renderHistory(); loadDB();
+  renderMap(); renderWorkout(); renderHistory(); renderHome(); renderAvatar(); loadDB();
+  if (!S.profile) openOnboard();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

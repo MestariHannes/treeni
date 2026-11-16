@@ -6,6 +6,10 @@ Treenipäiväkirja puhelimeen (PWA). Valitse lihas kartalta, löydä liike ja ki
 
 ## Ominaisuudet
 
+- Oma profiili: tavoite (lihasmassa, voima, kunto, laihdutus), kokemus, treenipäivät ja välineet
+- Koti-näkymä: viikon tavoite, viikkoputki, seuraava treeni ja viimeisin treeni
+- Valmiit ohjelmat (koko keho, ylä- ja alakroppa, työntö–veto–jalat) kuntosalille, käsipainoille tai omalla painolla, sekä omat pohjat
+- Varmuuskopio: vie ja tuo tiedot JSON-tiedostona
 - Lihaskartta edestä ja takaa: napauta lihasta, niin näet sen liikkeet
 - Liikepankki (876 liikettä), haku ja välinesuodatin
 - Liikkeen tiedot, historia, ennätykset ja kehityskäyrä
