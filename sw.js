@@ -1,6 +1,6 @@
 /* Offline-tuki: sovelluksen tiedostot välimuistiin, liikepankki ja kuvat välimuistiin ensimmäisellä latauksella. */
-const V = 'treeni-v3';
-const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'muscles.js', 'names-fi.js', 'programs.js', 'manifest.webmanifest', 'icon.svg'];
+const V = 'treeni-v4';
+const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'muscles.js', 'names-fi.js', 'programs.js', 'ohjeet-fi.js', 'mannequin.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

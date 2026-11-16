@@ -4,7 +4,7 @@
   const DB_URL = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
   const IMG = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
   const KEY = 'treeni.v1'; // avain pidetään samana, jotta vanhat tiedot säilyvät
-  const VERSION = '2.1';
+  const VERSION = '2.2';
   const PAGE = 30;
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -26,6 +26,8 @@
   const mName = m => Muscles.NAMES[m] || m;
   const eqName = q => FI.equipment[q] || q || 'Muu';
   const img = (e, i = 0) => e && e.images && e.images[i] ? IMG + e.images[i] : '';
+  // Liikkeen pikkukuva: piirretty hahmo (Mannequin), valokuvat vain erikseen pyydettäessä
+  const thumb = e => e ? Mannequin.svg(e) : '';
   const e1rm = (kg, r) => kg * (1 + r / 30);
   const fmt = n => (Math.round(n * 10) / 10).toString().replace('.', ',');
   const dur = ms => { const m = Math.round(ms / 60000); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
@@ -74,7 +76,7 @@
   }
   function card(e) {
     return `<button class="card" data-ex="${esc(e.id)}">
-      <div class="img"><img loading="lazy" src="${img(e)}" alt="">${S.favs.includes(e.id) ? '<span class="fav">★</span>' : ''}</div>
+      <div class="img">${thumb(e)}${S.favs.includes(e.id) ? '<span class="fav">★</span>' : ''}</div>
       <div class="txt"><div class="nm">${esc(nameOf(e))}</div><div class="sub">${esc(e.primaryMuscles.map(mName).join(', '))} · ${esc(eqName(e.equipment))}</div></div>
     </button>`;
   }
@@ -90,9 +92,33 @@
   $('#map').addEventListener('click', ev => {
     const p = ev.target.closest('.m'); if (!p) return;
     const m = p.dataset.m;
-    ui.sel.has(m) ? ui.sel.delete(m) : ui.sel.add(m);
+    const adding = !ui.sel.has(m);
+    adding ? ui.sel.add(m) : ui.sel.delete(m);
     ui.shown = PAGE; renderMap(); renderList();
+    if (adding) openMuscle(m);
   });
+  // Lihaksen alavalikko: lihaksen parhaat liikkeet, määrä 1–10
+  function topFor(m) {
+    const ids = (FI.top[m] || []).filter(id => BY.has(id));
+    if (ids.length < 10) DB.forEach(e => { if (ids.length < 10 && e.primaryMuscles.includes(m) && !ids.includes(e.id)) ids.push(e.id); });
+    return ids;
+  }
+  function openMuscle(m) {
+    if (!DB.length) return;
+    const n = Math.min(10, Math.max(1, S.topN || 5)), all = DB.filter(e => e.primaryMuscles.includes(m)).length;
+    const card = $('#sheetCard');
+    card.innerHTML = `<div class="sheet-top"><h3>${esc(mName(m))}</h3><button class="x" data-close aria-label="Sulje">✕</button></div>
+      <div class="pane">
+        <div class="stepper"><span>Parhaat liikkeet</span><button data-topn="-1" aria-label="Vähemmän">−</button><b>${n}</b><button data-topn="1" aria-label="Enemmän">+</button></div>
+        <ul class="toplist">${topFor(m).slice(0, n).map((id, i) => { const e = BY.get(id); return `<li>
+          <button class="tl" data-ex="${esc(id)}"><i>${i + 1}</i><span class="th">${thumb(e)}</span><span class="tn"><b>${esc(nameOf(e))}</b><small>${esc(eqName(e.equipment))}${FI_OHJE[id] ? ' · ' + esc(FI_OHJE[id].short) : ''}</small></span></button>
+          <button class="tadd" data-add="${esc(id)}" aria-label="Lisää treeniin">+</button></li>`; }).join('')}</ul>
+        <button class="cta alt" data-close>Näytä kaikki ${all} liikettä</button></div>`;
+    $('#sheet').hidden = false;
+    card.querySelectorAll('[data-topn]').forEach(b => b.addEventListener('click', () => {
+      S.topN = Math.min(10, Math.max(1, n + +b.dataset.topn)); save(); openMuscle(m);
+    }));
+  }
   // Kehon malli: profiilin sukupuoli (tai valinta ilman profiilia)
   function bodySex() { return (S.profile && S.profile.sex) || S.bodySex || 'male'; }
   $('#sexSeg').addEventListener('click', ev => {
@@ -144,7 +170,8 @@
       <div class="sheet-top"><h3>${esc(nameOf(e))}</h3>
         <button class="x" data-fav="${esc(id)}" aria-label="Suosikki">${S.favs.includes(id) ? '★' : '☆'}</button>
         <button class="x" data-close aria-label="Sulje">✕</button></div>
-      <div class="anim">${(e.images || []).slice(0, 2).map((s, i) => `<img src="${IMG + s}" alt="" style="opacity:${i ? 0 : 1}">`).join('')}</div>
+      <div class="anim" id="mqBox"></div>
+      <div class="anim-bar"><span>Hahmo näyttää liikkeen suunnan. Vihreä = kohdelihas.</span>${(e.images || []).length ? '<button class="linkbtn2" data-photos>Valokuvat</button>' : ''}</div>
       <div class="tabs2">
         <button data-tab="info" class="${tab === 'info' ? 'on' : ''}">Tietoa</button>
         <button data-tab="hist" class="${tab === 'hist' ? 'on' : ''}">Historia</button>
@@ -157,11 +184,13 @@
       card.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
       if (t === 'info') {
         pane.innerHTML = `
+          ${quickHow(e)}
           <h4>Kohdelihakset</h4>${Muscles.pair({ primary: e.primaryMuscles, secondary: sec, sex: bodySex() })}
           <div class="tags" style="margin-top:10px">${e.primaryMuscles.map(m => `<span class="tag p">${esc(mName(m))}</span>`).join('')}${sec.map(m => `<span class="tag">${esc(mName(m))}</span>`).join('')}</div>
           <h4>Tiedot</h4><div class="tags"><span class="tag">${esc(eqName(e.equipment))}</span><span class="tag">${esc(FI.level[e.level] || e.level)}</span>${FI.names[e.id] ? `<span class="tag">${esc(e.name)}</span>` : ''}</div>
-          <h4>Suoritus</h4><ol>${(e.instructions || []).map(s => `<li>${esc(s)}</li>`).join('')}</ol>
-          <p class="note">Ohjeet ovat toistaiseksi englanniksi.</p>`;
+          ${howTo(e)}`;
+        const more = pane.querySelector('[data-more]');
+        if (more) more.addEventListener('click', () => { const d = pane.querySelector('.more-box'); d.hidden = !d.hidden; more.textContent = d.hidden ? 'Tarkemmat ohjeet' : 'Piilota tarkemmat ohjeet'; });
       } else if (t === 'hist') {
         const ss = sessionsFor(id).reverse();
         pane.innerHTML = ss.length ? chart(ss.slice().reverse()) + ss.map(s => `<div class="hist" style="margin-top:10px"><div class="d">${date(s.start)}</div><ul>${s.sets.map(x => `<li>${fmt(+x.kg || 0)} kg × ${+x.reps || 0}</li>`).join('')}</ul></div>`).join('')
@@ -181,8 +210,31 @@
     card.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
     $('#sheet').hidden = false;
     clearInterval(animT);
-    const ims = card.querySelectorAll('.anim img');
-    if (ims.length > 1) { let k = 0; animT = setInterval(() => { k ^= 1; ims[0].style.opacity = k ? 0 : 1; ims[1].style.opacity = k ? 1 : 0; }, 1100); }
+    Mannequin.play($('#mqBox', card), e);
+    const ph = card.querySelector('[data-photos]');
+    if (ph) ph.addEventListener('click', () => {
+      const box = $('#mqBox', card), showing = box.dataset.photos === '1';
+      clearInterval(animT);
+      if (showing) { box.dataset.photos = ''; ph.textContent = 'Valokuvat'; Mannequin.play(box, e); return; }
+      Mannequin.stop(); box.dataset.photos = '1'; ph.textContent = 'Hahmo';
+      box.innerHTML = (e.images || []).slice(0, 2).map((s, i) => `<img src="${IMG + s}" alt="" style="opacity:${i ? 0 : 1}">`).join('');
+      const ims = box.querySelectorAll('img');
+      if (ims.length > 1) { let k = 0; animT = setInterval(() => { k ^= 1; ims[0].style.opacity = k ? 0 : 1; ims[1].style.opacity = k ? 1 : 0; }, 1100); }
+    });
+  }
+  // Lyhyt ohje heti näkyviin, tarkemmat ohjeet erillisestä painikkeesta
+  function quickHow(e) {
+    const o = FI_OHJE[e.id];
+    return o ? `<div class="how"><b>Näin teet sen</b><p>${esc(o.short)}</p></div>` : '';
+  }
+  function howTo(e) {
+    const o = FI_OHJE[e.id];
+    if (o) return `<button class="cta alt more-btn" data-more>Tarkemmat ohjeet</button>
+      <div class="more-box" hidden><h4>Suoritus</h4><ol>${o.steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol>
+      <h4>Vinkit</h4><ul class="tips">${o.tips.map(s => `<li>${esc(s)}</li>`).join('')}</ul></div>`;
+    return `<button class="cta alt more-btn" data-more>Tarkemmat ohjeet</button>
+      <div class="more-box" hidden><h4>Suoritus</h4><ol>${(e.instructions || []).map(s => `<li>${esc(s)}</li>`).join('')}</ol>
+      <p class="note">Tämän liikkeen ohjeet ovat vielä englanniksi. Suomenkieliset ohjeet on tehty 169 yleisimmälle liikkeelle.</p></div>`;
   }
   function chart(ss) {
     const pts = ss.map(s => Math.max(...s.sets.map(x => +x.kg || 0)));
@@ -193,7 +245,7 @@
       <path d="M${xy.map(a => a.join(' ')).join(' L')}"/>${xy.map(a => `<circle cx="${a[0]}" cy="${a[1]}" r="4"/>`).join('')}
       <text x="${p}" y="14">${fmt(hi)} kg</text><text x="${p}" y="${H - 6}">${fmt(lo)} kg</text></svg>`;
   }
-  function closeSheet() { $('#sheet').hidden = true; clearInterval(animT); }
+  function closeSheet() { $('#sheet').hidden = true; clearInterval(animT); Mannequin.stop(); }
   $('#sheet').addEventListener('click', ev => {
     if (ev.target.closest('[data-close]')) return closeSheet();
     const f = ev.target.closest('[data-fav]');
@@ -243,7 +295,7 @@
       ${S.active.items.map((it, xi) => {
         const e = BY.get(it.id); const prev = lastSets(it.id);
         return `<div class="ex" data-xi="${xi}">
-          <div class="ex-h"><img src="${img(e)}" alt=""><div class="nm" data-ex="${esc(it.id)}">${esc(e ? nameOf(e) : it.id)}${it.reps ? `<small>Tavoite ${it.sets.length} × ${esc(it.reps)}</small>` : ''}</div><button data-rmex="${xi}" aria-label="Poista liike">✕</button></div>
+          <div class="ex-h"><span class="th">${thumb(e)}</span><div class="nm" data-ex="${esc(it.id)}">${esc(e ? nameOf(e) : it.id)}${it.reps ? `<small>Tavoite ${it.sets.length} × ${esc(it.reps)}</small>` : ''}</div><button data-rmex="${xi}" aria-label="Poista liike">✕</button></div>
           <table class="sets"><thead><tr><th>Sarja</th><th>Edellinen</th><th>kg</th><th>Toistot</th><th>✓</th></tr></thead><tbody>
           ${it.sets.map((s, si) => {
             const p = prev[si];
@@ -386,7 +438,7 @@
   function tplCard(t, sub) {
     return `<div class="plan">
       <div class="plan-h"><div><h3>${esc(t.name)}</h3>${sub ? `<span>${esc(sub)}</span>` : ''}</div></div>
-      <ul>${t.items.map(i => { const e = BY.get(i.id); return `<li data-ex="${esc(i.id)}"><img loading="lazy" src="${img(e)}" alt=""><span>${esc(e ? nameOf(e) : (FI.names[i.id] || i.id))}</span><b>${i.sets} × ${esc(i.reps || '–')}</b></li>`; }).join('')}</ul>
+      <ul>${t.items.map(i => { const e = BY.get(i.id); return `<li data-ex="${esc(i.id)}"><span class="th">${thumb(e)}</span><span>${esc(e ? nameOf(e) : (FI.names[i.id] || i.id))}</span><b>${i.sets} × ${esc(i.reps || '–')}</b></li>`; }).join('')}</ul>
       <button class="cta" data-start="${esc(t.id)}">Aloita treeni</button></div>`;
   }
   function findTpl(id) {
@@ -462,8 +514,9 @@
       <fieldset><legend>Kehon malli</legend><div class="opts">${opts('sex', { male: 'Mies', female: 'Nainen' }, p.sex || S.bodySex || 'male')}</div></fieldset>
       <fieldset><legend>Tavoite</legend><div class="opts">${opts('goal', goals, p.goal || 'muscle')}</div></fieldset>
       <fieldset><legend>Kokemus</legend><div class="opts">${opts('level', Programs.LEVELS, p.level || 'beginner')}</div></fieldset>
-      <fieldset><legend>Treenejä viikossa</legend><div class="opts">${opts('daysPerWeek', { 2: '2', 3: '3', 4: '4', 5: '5', 6: '6' }, p.daysPerWeek || 3)}</div></fieldset>
+      <fieldset><legend>Treenejä viikossa</legend><div class="opts">${opts('daysPerWeek', Object.fromEntries(Array.from({ length: 15 }, (_, i) => [i + 1, String(i + 1)])), p.daysPerWeek || 3)}</div></fieldset>
       <fieldset><legend>Missä treenaat</legend><div class="opts">${opts('equipment', Programs.EQUIP, p.equipment || 'gym')}</div></fieldset>
+      <fieldset><legend>Teema</legend><div class="opts">${opts('theme', { auto: 'Automaattinen', light: 'Vaalea', dark: 'Tumma', black: 'Musta' }, S.theme || 'auto')}</div></fieldset>
       <div class="two">
         <label class="fld"><span>Pituus (cm) <i>vapaaehtoinen</i></span><input name="heightCm" inputmode="numeric" value="${esc(p.heightCm || '')}"></label>
         <label class="fld"><span>Paino (kg) <i>vapaaehtoinen</i></span><input name="weightKg" inputmode="decimal" value="${esc(p.weightKg || '')}"></label>
@@ -477,6 +530,7 @@
     const p = { v: 1, name: String(d.get('name') || '').trim(), sex: d.get('sex') || 'male', goal: d.get('goal'), level: d.get('level'), daysPerWeek: +d.get('daysPerWeek'),
       equipment: d.get('equipment'), heightCm: num('heightCm'), weightKg: num('weightKg'), created: old.created || Date.now(), updated: Date.now() };
     if (p.weightKg && p.weightKg !== old.weightKg) S.bodyLog.push({ ts: Date.now(), kg: p.weightKg });
+    S.theme = d.get('theme') || 'auto'; applyTheme();
     if (p.goal !== old.goal) S.rest = (Programs.GOALS[p.goal] || {}).rest || S.rest;
     S.profile = p; ui.pick = null; save(); renderAvatar(); renderHome(); renderMap();
   }
@@ -531,6 +585,15 @@
     } catch (e) { toast('Tiedostoa ei voitu lukea'); }
   });
 
+  /* ---------- Teema ---------- */
+  function applyTheme() {
+    const t = S.theme || 'auto', r = document.documentElement;
+    if (t === 'auto') delete r.dataset.theme; else r.dataset.theme = t;
+    const dark = t === 'black' || t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+    document.querySelector('meta[name=theme-color]').setAttribute('content', t === 'black' ? '#000000' : dark ? '#11130E' : '#5A7608');
+  }
+  applyTheme();
+
   /* ---------- Navigointi ---------- */
   function go(v) {
     ui.view = v;
@@ -549,5 +612,8 @@
   if (hm) decodeURIComponent(hm[1]).split(',').filter(m => Muscles.NAMES[m]).forEach(m => ui.sel.add(m));
   renderMap(); renderWorkout(); renderHistory(); renderHome(); renderAvatar(); loadDB();
   if (!S.profile) openOnboard();
+  // Avausefekti pois animaation jälkeen
+  document.body.classList.add('opening');
+  setTimeout(() => { const sp = $('#splash'); if (sp) sp.remove(); document.body.classList.remove('opening'); }, 2000);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

@@ -91,6 +91,11 @@
     back: ['M74 300 C80 304 88 304 94 300', 'M100 150 L100 206']
   };
 
+  // Lihassäikeiden suunta (asteina) lihaksittain; vasen puoli, peilautuu automaattisesti
+  const FIB = {
+    front: { neck: 25, traps: 60, shoulders: 8, chest: -22, biceps: 4, forearms: 14, lats: 20, abdominals: 0, abductors: 20, quadriceps: 6, adductors: -18, calves: 2 },
+    back: { traps: -38, shoulders: -8, 'middle back': 65, lats: -48, 'lower back': 0, triceps: 2, forearms: 14, glutes: -42, abductors: 70, hamstrings: 2, calves: 2 }
+  };
   function cls(m, o) {
     if (o.selected && o.selected.has(m)) return 'm sel';
     if (o.primary && o.primary.includes(m)) return 'm pri';
@@ -103,14 +108,17 @@
     const list = (side === 'front' ? FRONT : BACK).filter(x => !x[2] || x[2] === sex);
     const mus = list.map(([m, d]) => `<path class="${cls(m, o)}" data-m="${m}" d="${w(d)}"><title>${MUSCLES[m]}</title></path>`).join('');
     const shade = list.map(([, d]) => `<path d="${w(d)}"/>`).join('');
+    const angs = [...new Set(list.map(([m]) => FIB[side][m] || 0))];
+    const fib = list.map(([m, d]) => `<path d="${w(d)}" fill="url(#${id}f${angs.indexOf(FIB[side][m] || 0)})"/>`).join('');
     const lines = LINES[side].map(d => `<path d="${w(d)}"/>`).join('');
     const deco = DECO[side].map(d => `<path class="dec" d="${w(d)}"/>`).join('');
     const hair = `<path class="hair" d="${w(HAIR[sex][side])}"/>`;
     const half = `<path class="sil" d="${w(BODY)}"/><path class="sil" d="${w(HEAD)}"/>${side === 'front' ? `<path class="sil ear" d="${w(EAR)}"/>` : ''}${hair}` +
-      `${deco}${mus}<g class="shade" fill="url(#${id})">${shade}</g><g class="ln">${lines}</g>`;
+      `${deco}${mus}<g class="fib">${fib}</g><g class="shade" fill="url(#${id})">${shade}</g><g class="ln">${lines}</g>`;
     const defs = `<defs><radialGradient id="${id}" cx=".38" cy=".3" r=".85">
       <stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset=".55" stop-color="#fff" stop-opacity="0"/>
-      <stop offset="1" stop-color="#000" stop-opacity=".22"/></radialGradient></defs>`;
+      <stop offset="1" stop-color="#000" stop-opacity=".22"/></radialGradient>
+      ${angs.map((a, i) => `<pattern id="${id}f${i}" width="2.4" height="2.4" patternUnits="userSpaceOnUse" patternTransform="rotate(${a})"><line x1="0" y1="0" x2="0" y2="2.4" stroke="#000" stroke-opacity=".13" stroke-width=".55"/></pattern>`).join('')}</defs>`;
     return defs + `<g>${half}</g><g transform="translate(200,0) scale(-1,1)">${half}</g>`;
   }
 

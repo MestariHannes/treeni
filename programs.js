@@ -54,6 +54,7 @@ window.Programs = (function () {
   // Aikaan perustuvat liikkeet: "toistot" = sekunnit
   const TIMED = { Plank: '30–60 s', Mountain_Climbers: '30–45 s' };
 
+  // 1–3 päivää: koko keho, 4: ylä/ala, 5+: työntö–veto–jalat (yli 6 päivää kiertää samaa jakoa)
   function splitFor(days) { return days >= 5 ? 'ppl' : days === 4 ? 'upperlower' : 'full'; }
 
   // Palauttaa profiilin mukaisen ohjelman: { id, name, sessions:[{ id, name, items:[{id, sets, reps}] }] }
