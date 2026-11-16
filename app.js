@@ -4,7 +4,7 @@
   const DB_URL = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
   const IMG = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
   const KEY = 'treeni.v1'; // avain pidetään samana, jotta vanhat tiedot säilyvät
-  const VERSION = '3.6';
+  const VERSION = '4.0';
   const PAGE = 30;
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -107,7 +107,7 @@
     c.innerHTML = ui.sel.size
       ? [...ui.sel].map(m => `<button class="chip" data-unsel="${esc(m)}">${esc(mName(m))} <b>×</b></button>`).join('') +
         (ui.sel.size > 1 ? '<button class="chip ghost" data-clear>Tyhjennä</button>' : '')
-      : '<span class="chip ghost">Napauta lihasta kartalta</span>';
+      : '';
   }
   // Lihasryhmärivi: pieni vartalokuvake jokaiselle lihasryhmälle, valittu punaisena
   const MGROUPS = [['chest', 'front'], ['shoulders', 'front'], ['biceps', 'front'], ['triceps', 'back'], ['forearms', 'front'], ['abdominals', 'front'],
@@ -189,6 +189,12 @@
     b.dataset.clear !== undefined ? ui.sel.clear() : ui.sel.delete(b.dataset.unsel);
     ui.shown = PAGE; renderMap(); renderList();
   });
+  // Lihaskartta on piilossa oletuksena; lihasryhmärivi ja haku ovat ensisijainen tapa löytää liike
+  $('#mapToggle').addEventListener('click', ev => {
+    const box = $('#mapBox'), open = box.hidden;
+    box.hidden = !open; ev.currentTarget.setAttribute('aria-expanded', open);
+    ev.currentTarget.textContent = open ? 'Piilota lihaskartta' : 'Näytä lihaskartta';
+  });
   $('#search').addEventListener('input', ev => { ui.q = ev.target.value; ui.shown = PAGE; renderList(); });
   $('#equip').addEventListener('change', ev => { ui.equip = ev.target.value; ui.shown = PAGE; renderList(); });
   $('#more').addEventListener('click', () => { ui.shown += PAGE; renderList(); });
@@ -242,7 +248,7 @@
         <button class="x" data-fav="${esc(id)}" aria-label="Suosikki">${S.favs.includes(id) ? '★' : '☆'}</button>
         <button class="x" data-close aria-label="Sulje">✕</button></div>
       <div class="anim" id="mqBox"></div>
-      <div class="anim-bar"><span>Pyöritä sormella · napauta pysäyttääksesi · punainen = kohdelihas</span>${(e.images || []).length ? '<button class="linkbtn2" data-photos>Valokuvat</button>' : ''}</div>
+      <div class="anim-bar"><span><i class="dot-hit" aria-hidden="true"></i>Punainen = kohdelihas</span></div>
       <div class="tabs2">
         <button data-tab="info" class="${tab === 'info' ? 'on' : ''}">Tietoa</button>
         <button data-tab="hist" class="${tab === 'hist' ? 'on' : ''}">Historia</button>
@@ -439,30 +445,28 @@
   let finishArmed = false;
   function renderWorkout() {
     const box = $('#workout');
-    const badge = $('#badge');
-    const n = S.active ? S.active.items.length : 0;
-    badge.hidden = !n; badge.textContent = n;
+    syncResume();
     if (!S.active) {
-      box.innerHTML = `<div class="empty"><h2>Ei treeniä käynnissä</h2>
-        <p>Valitse lihas kartalta, avaa liike ja paina “Aloita treeni”.</p>
+      box.innerHTML = `<div class="empty"><span class="empty-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 9v6M6 7v10M18 7v10M21 9v6M6 12h12"/></svg></span><h2>Ei treeniä käynnissä</h2>
+        <p>Aloita päivän treeni Kodista tai valitse liikkeet itse lihaskartalta.</p>
         <button class="cta" data-go="muscles">Valitse liikkeet</button></div>`;
       return;
     }
     box.innerHTML = `
-      <div class="wo-head"><h2>${esc(S.active.name || 'Treeni')}</h2><span id="elapsed"></span></div>
-      <div class="rest-row">Lepoaika sarjojen välissä
+      <div class="wo-head"><h2>${esc(S.active.name || 'Treeni')}</h2><span id="elapsed" class="elapsed" aria-label="Kesto"></span></div>
+      <div class="rest-row"><span>Lepoaika sarjojen välissä</span>
         <select id="restSel">${[0, 30, 60, 90, 120, 150, 180, 240].map(s => `<option value="${s}" ${s === S.rest ? 'selected' : ''}>${s ? (s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : s + ' s') : 'Ei ajastinta'}</option>`).join('')}</select></div>
       ${S.active.items.map((it, xi) => {
         const e = BY.get(it.id); const prev = lastSets(it.id);
         return `<div class="ex" data-xi="${xi}">
-          <div class="ex-h"><span class="th">${thumb(e)}</span><div class="nm" data-ex="${esc(it.id)}">${esc(e ? nameOf(e) : it.id)}${it.reps ? `<small>Tavoite ${it.sets.length} × ${esc(it.reps)}</small>` : ''}</div><button data-rmex="${xi}" aria-label="Poista liike">✕</button></div>
+          <div class="ex-h"><span class="th">${thumb(e)}</span><div class="nm" data-ex="${esc(it.id)}">${esc(e ? nameOf(e) : it.id)}${it.reps ? `<small>Tavoite ${it.sets.length} × ${esc(it.reps)}</small>` : ''}</div><button class="ex-x" data-rmex="${xi}" aria-label="Poista liike">✕</button></div>
           ${(() => { const le = lastEntry(it.id), pn = S.notes[it.id]; return `
           <div class="memo">
             <label class="memo-p"><span>📌</span><input data-pnote="${esc(it.id)}" value="${esc(pn ? pn.text : '')}" placeholder="Pysyvä muistiinpano, esim. penkin korkeus tai ote" maxlength="140"></label>
             ${le ? `<p class="memo-l">Viimeksi ${date(le.start)}: <b>${esc(summarize(le.sets))}</b>${le.note ? ` · ”${esc(le.note)}”` : ''}</p>` : ''}
             <input class="memo-t" data-inote="${xi}" value="${esc(it.note || '')}" placeholder="Muistiinpano tähän kertaan" maxlength="140">
           </div>`; })()}
-          <table class="sets"><thead><tr><th>Sarja</th><th>Edellinen</th><th>kg</th><th>Toistot</th><th>✓</th></tr></thead><tbody>
+          <table class="sets"><thead><tr><th>Sarja</th><th>Edellinen</th><th>kg</th><th>Toistot</th><th><span class="vh">Tehty</span></th></tr></thead><tbody>
           ${it.sets.map((s, si) => {
             const p = prev[si];
             const b = it.sets[si - 1];
@@ -474,16 +478,15 @@
               <td class="prev">${p ? `${fmt(+p.kg || 0)}×${+p.reps || 0}` : '–'}${up && up.up ? '<em class="upb">↑</em>' : ''}</td>
               <td><input inputmode="decimal" data-f="kg" value="${esc(s.kg)}" placeholder="${ph && ph.kg != null ? fmt(+ph.kg || 0) : 'kg'}"></td>
               <td><input inputmode="numeric" data-f="reps" value="${esc(s.reps)}" placeholder="${ph ? +ph.reps || 0 : '0'}"></td>
-              <td><button class="ok" data-ok>✓</button></td></tr>`;
+              <td><button class="ok" data-ok aria-label="${s.done ? 'Peru sarja' : 'Merkitse sarja tehdyksi'}" aria-pressed="${!!s.done}">✓</button></td></tr>`;
           }).join('')}
           </tbody></table>
           <button class="addset" data-addset="${xi}">+ Lisää sarja</button></div>`;
       }).join('')}
+      <button class="cta alt addex" data-go="muscles">+ Lisää liike</button>
       <label class="wo-note"><span>Treenin muistiinpano</span><textarea id="woNote" rows="2" maxlength="400" placeholder="Miltä treeni tuntui? Kipuja, energiaa, muuta muistettavaa">${esc(S.active.note || '')}</textarea></label>
-      <button class="cta alt" data-go="muscles">+ Lisää liike</button>
-      <button class="cta alt" id="saveTpl">Tallenna pohjaksi</button>
-      <button class="cta" id="finish">${finishArmed ? 'Vahvista: tallenna ja lopeta' : 'Lopeta treeni'}</button>
-      <button class="cta alt" id="discard" style="color:var(--danger)">Hylkää treeni</button>`;
+      <button class="cta finish ${finishArmed ? 'armed' : ''}" id="finish">${finishArmed ? 'Paina uudelleen: lopeta ja tallenna' : 'Lopeta ja tallenna'}</button>
+      <div class="wo-sec"><button class="textbtn" id="saveTpl">Tallenna pohjaksi</button><button class="textbtn danger" id="discard">Hylkää treeni</button></div>`;
     tickElapsed(); ui.pop = null;
     hydrate3d(box);
   }
@@ -575,7 +578,7 @@
   function renderHistory() {
     const box = $('#history');
     if (!S.history.length) {
-      box.innerHTML = '<div class="empty"><h2>Ei vielä treenejä</h2><p>Tehdyt treenit, ennätykset ja kehitys näkyvät täällä.</p></div>';
+      box.innerHTML = '<div class="empty"><span class="empty-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V5m0 14h16M8 15l3-4 3 2 5-6"/></svg></span><h2>Ei vielä treenejä</h2><p>Tehdyt treenit, ennätykset ja kehitys näkyvät täällä ensimmäisen treenin jälkeen.</p></div>';
       return;
     }
     const weekAgo = Date.now() - 7 * 864e5;
@@ -583,7 +586,7 @@
     const ids = [...new Set(S.history.flatMap(w => w.items.map(i => i.id)))];
     const prs = ids.map(id => ({ id, r: recordsFor(id) })).filter(x => x.r.maxKg > 0).sort((a, b) => b.r.best - a.r.best).slice(0, 8);
     box.innerHTML = `
-      <div class="wo-head"><h2>Historia</h2></div>
+      <div class="wo-head"><h2>Edistyminen</h2></div>
       <div class="stats">
         <div class="stat"><b>${S.history.length}</b><span>treeniä</span></div>
         <div class="stat"><b>${S.history.filter(w => w.start > weekAgo).length}</b><span>7 päivässä</span></div>
@@ -645,13 +648,12 @@
     const own = nxt.id.startsWith('own-');
     box.innerHTML = `
       <div class="hello"><p>${now.toLocaleDateString('fi-FI', { weekday: 'long', day: 'numeric', month: 'numeric' })}</p><h2>${hello}, ${esc(P.name)}!</h2></div>
-      ${S.active ? `<button class="banner" data-go="workout"><b>Treeni käynnissä</b><span>${esc(S.active.name || 'Oma treeni')} · ${S.active.items.length} liikettä</span><i>Jatka →</i></button>` : ''}
       <div class="today">
         <div class="today-3d" id="today3d" aria-hidden="true"></div>
         <p class="today-k">Tänään</p>
         <h3>${esc(nxt.name)}</h3>
         <p class="today-m">${nxt.items.length} liikettä · noin ${mins} min${own ? ' · oma pohja' : ` · ${esc(g.name.toLowerCase())}`}</p>
-        <button class="go-btn" data-start="${esc(nxt.id)}">Aloita treeni</button>
+        ${S.active ? '<button class="go-btn" data-go="workout">Jatka treeniä</button>' : `<button class="go-btn" data-start="${esc(nxt.id)}">Aloita treeni</button>`}
         <div class="today-l"><button data-toggle="list">${ui.showList ? 'Piilota liikkeet' : 'Näytä liikkeet'}</button><button data-toggle="pick">${ui.showPick ? 'Sulje' : 'Vaihda treeni'}</button></div>
         ${ui.showPick ? `<div class="chips picks">${prog.sessions.map(s => `<button class="chip ${s.id === nxt.id ? '' : 'ghost'}" data-pick="${esc(s.id)}">${esc(s.name)}</button>`).join('')}
           ${S.templates.map(t => `<button class="chip ${t.id === nxt.id ? '' : 'ghost'}" data-pick="${esc(t.id)}">★ ${esc(t.name)}</button>`).join('')}</div>
@@ -663,12 +665,7 @@
         <div class="week-t"><h3>${done >= target ? 'Viikon tavoite täynnä!' : `${done}/${target} tällä viikolla`}</h3><p>${st ? `🔥 ${st} viikon putki` : msg}</p><div class="days">${days}</div></div>
       </div>
       ${weightCard()}${progressCard()}
-      ${needBackup ? '<button class="banner warn" data-backup><b>Ota varmuuskopio</b><span>Tiedot ovat vain tässä puhelimessa.</span><i>Vie →</i></button>' : ''}
-      <div class="quick">
-        <button data-go="muscles"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5"/><path d="M6 9h12M12 9v6m0 0-3 6m3-6 3 6"/></svg>Etsi liike</button>
-        <button data-go="history"><svg viewBox="0 0 24 24"><path d="M4 19V5m0 14h16M8 15l3-4 3 2 5-6"/></svg>Kehitys</button>
-      </div>
-      ${last ? `<p class="lastline">Viimeksi ${date(last.start)}: <b>${esc(last.name || last.items.map(i => BY.get(i.id) ? nameOf(BY.get(i.id)) : i.id).slice(0, 2).join(', '))}</b></p>` : ''}`;
+      ${needBackup ? '<button class="banner warn" data-backup><b>Ota varmuuskopio</b><span>Tiedot ovat vain tässä puhelimessa.</span><i>Vie →</i></button>' : ''}`;
     hydrate3d(box);
     heroPlay(nxt.items[0] && BY.get(nxt.items[0].id));
   }
@@ -764,7 +761,7 @@
     card.querySelector('[data-export]').addEventListener('click', exportData);
     card.querySelector('[data-import]').addEventListener('click', () => $('#importFile').click());
   }
-  $('#profileBtn').addEventListener('click', openProfile);
+  $('#profileBtn').addEventListener('click', openMore);
 
   /* ---------- Varmuuskopio ---------- */
   function exportData() {
@@ -813,7 +810,7 @@
   const MOODS = ['😫', '😕', '😐', '🙂', '🤩'];
   function openMore() {
     const card = $('#sheetCard');
-    card.innerHTML = `<div class="sheet-top"><h3>Lisää</h3><button class="x" data-close aria-label="Sulje">✕</button></div>
+    card.innerHTML = `<div class="sheet-top"><h3>Valikko</h3><button class="x" data-close aria-label="Sulje">✕</button></div>
       <div class="pane menu">
         <button data-m="diary"><i>📓</i><span><b>Päiväkirja</b><small>Fiilis, uni ja muistiinpanot päivittäin</small></span></button>
         <button data-m="notes"><i>📌</i><span><b>Liikkeiden muistiinpanot</b><small>Penkin korkeudet, otteet ja muut pysyvät muistiinpanot</small></span></button>
@@ -882,13 +879,22 @@
     if (v === 'workout') renderWorkout();
     if (v === 'history') renderHistory();
     if (v === 'home') renderHome(); else if (H3 && $('#sheet').hidden) H3.stop();
+    syncResume();
     window.scrollTo(0, 0);
     setTimeout(() => hydrate3d($('#view-' + v)), 30);
   }
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
     b.classList.remove('bump'); void b.offsetWidth; b.classList.add('bump');
-    b.dataset.more !== undefined ? openMore() : go(b.dataset.view);
+    go(b.dataset.view);
   }));
+  // Pikapalkki käynnissä olevaan treeniin (Treeni-näkymällä ei ole omaa välilehteä)
+  function syncResume() {
+    const r = $('#resumeBar'); if (!r) return;
+    const on = !!S.active && ui.view !== 'workout';
+    r.hidden = !on;
+    if (on) r.querySelector('span').textContent = `${S.active.name || 'Oma treeni'} · ${S.active.items.length} liikettä`;
+  }
+  $('#resumeBar').addEventListener('click', () => go('workout'));
 
   /* ---------- Käynnistys ---------- */
   // Linkillä voi esivalita lihakset, esim. #m=chest,shoulders
