@@ -448,7 +448,7 @@ function buildCable(M, a, scene, A0, k) {
 /* ---------- Toisto ---------- */
 export function stop() { cancelAnimationFrame(raf); raf = 0; if (current) { current.dispose(); current = null; } }
 
-async function setup(ex, sex, w, h) {
+async function setup(ex, sex, w, h, opts = {}) {
   const key0 = MQ.classify(ex), a = Object.assign({ key: key0 }, MQ.ARCH[key0]);
   const M = await load(sex === 'female' ? 'female' : 'male');
   paint(M, ex.primaryMuscles || [], ex.secondaryMuscles || []);
@@ -474,7 +474,7 @@ async function setup(ex, sex, w, h) {
   const target = A0[anchor].clone();
   const k = (wp(M, 'neck_01').distanceTo(wp(M, 'pelvis'))) / MQ.L.torso;
   buildStatic(M, a, scene, A0);
-  buildRoom(scene, A0.pelvis);
+  if (!opts.noRoom) buildRoom(scene, A0.pelvis);
   const props = buildProps(M, a, scene);
   const cable = buildCable(M, a, scene, A0, k);
   const place = t => {
@@ -515,10 +515,10 @@ export async function still(ex, sex, t = .45, w = 240, h = 180) {
   return url;
 }
 
-export async function play(el, ex, sex) {
+export async function play(el, ex, sex, opts = {}) {
   stop();
   const w = el.clientWidth || 320, h = el.clientHeight || 220;
-  const S = await setup(ex, sex, w, h);
+  const S = await setup(ex, sex, w, h, opts);
   if (!el.isConnected) { S.dispose(); return; }
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.setSize(w, h, false);

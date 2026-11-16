@@ -300,7 +300,7 @@
     if (e) heroEx = e;
     const box = $('#today3d');
     if (!box || !heroEx || !window.WebGLRenderingContext || S.anim2d || ui.view !== 'home' || !$('#sheet').hidden) return;
-    import('./human3d.js').then(m => { H3 = m; return m.play(box, heroEx, bodySex()); }).catch(() => {});
+    import('./human3d.js').then(m => { H3 = m; return m.play(box, heroEx, bodySex(), { noRoom: true }); }).catch(() => {});
   }
   function play3d(box, e) {
     Mannequin.play(box, e);
