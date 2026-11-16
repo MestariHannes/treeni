@@ -125,7 +125,7 @@
   window.Muscles = {
     NAMES: MUSCLES,
     svg(side, o = {}) {
-      return `<svg class="bodymap${o.interactive ? ' live' : ''}" viewBox="14 2 172 410" role="img" aria-label="Lihaskartta ${side === 'front' ? 'edestä' : 'takaa'}">${figure(side, o)}</svg>`;
+      return `<svg class="bodymap${o.interactive ? ' live' : ''}" viewBox="${o.viewBox || '14 2 172 410'}" role="img" aria-label="Lihaskartta ${side === 'front' ? 'edestä' : 'takaa'}">${figure(side, o)}</svg>`;
     },
     pair(o = {}) {
       return `<div class="pair">${this.svg('front', o)}${this.svg('back', o)}</div>`;

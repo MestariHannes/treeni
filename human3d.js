@@ -21,14 +21,14 @@ async function load(sex) {
   const hairMeshes = [];
   hair.scene.traverse(o => { if (o.isSkinnedMesh) hairMeshes.push(o); });
   hairMeshes.forEach(m => {
-    if (m.material) { m.material = m.material.clone(); m.material.color.set(sex === 'female' ? 0x4a2f1f : 0x2e2219); }
+    if (m.material) { m.material = m.material.clone(); m.material.color.set(0x3a3c40); }
     const sk = new THREE.Skeleton(m.skeleton.bones.map(b => bones[b.name] || b), m.skeleton.boneInverses);
     root.add(m); m.bind(sk, m.bindMatrix);
   });
   let body3 = null;
   root.traverse(o => {
     if (o.isMesh) { o.frustumCulled = false; o.castShadow = false; }
-    if (o.isMesh && o.material && /Hair/i.test(o.material.name)) { o.material = o.material.clone(); o.material.color.set(sex === 'female' ? 0x4a2f1f : 0x2e2219); }
+    if (o.isMesh && o.material && /Hair/i.test(o.material.name)) { o.material = o.material.clone(); o.material.color.set(0x3a3c40); }
     if (o.isSkinnedMesh && o.material && /Superhero/i.test(o.material.name)) body3 = o;
   });
   const rest = new Map();
@@ -92,10 +92,20 @@ function paint(M, primary, secondary) {
   if (!mesh.material.userData.hl) {
     // Oma värjäys: ihon väri sekoittuu limenvihreään painon mukaan (ei kerrota tekstuuria)
     mesh.material.vertexColors = true;
+    // Anatomiatyyli: iho vaaleanharmaaksi, lihasten muodot korostetusti esiin, kohdelihakset punaisiksi,
+    // reunat tummuvat kuin piirroksen ääriviivat.
+    if (mesh.material.normalScale) mesh.material.normalScale.set(2.2, 2.2);
+    mesh.material.roughness = .72;
     mesh.material.onBeforeCompile = sh => {
       sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>',
-        'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.55, 0.95, 0.05), clamp(vColor.r, 0.0, 1.0) * 0.82); ' +
-        'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.80, 0.96, 0.45), clamp(vColor.g, 0.0, 1.0) * 0.45);');
+        'float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114)); ' +
+        'diffuseColor.rgb = vec3(lum) * vec3(1.0, 0.99, 0.97) * 1.55 + 0.06; ' +
+        'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.20, 0.13), clamp(vColor.r, 0.0, 1.0) * 0.88); ' +
+        'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95, 0.55, 0.42), clamp(vColor.g, 0.0, 1.0) * 0.55);')
+      .replace('#include <opaque_fragment>',
+        'float rimF = pow(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 3.0); ' +
+        'outgoingLight *= 1.0 - rimF * 0.6;\n' +
+        '#include <opaque_fragment>');
     };
     mesh.material.userData.hl = true; mesh.material.needsUpdate = true;
   }
@@ -195,7 +205,7 @@ const MAT = {
   metal: new THREE.MeshStandardMaterial({ color: 0x9aa0a8, metalness: .8, roughness: .3 }),
   black: new THREE.MeshStandardMaterial({ color: 0x1d1f22, metalness: .1, roughness: .7 }),
   pad: new THREE.MeshStandardMaterial({ color: 0x2b2e33, metalness: 0, roughness: .8 }),
-  mat: new THREE.MeshStandardMaterial({ color: 0x5A7608, roughness: .9 }),
+  mat: new THREE.MeshStandardMaterial({ color: 0x9aa3ad, roughness: .95 }),
   cable: new THREE.MeshBasicMaterial({ color: 0x222222 })
 };
 function cyl(r, len, mat, axis = 'x') {
@@ -295,9 +305,9 @@ async function setup(ex, sex, w, h) {
     renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
   }
   const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3d33, 1.15));
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f96, 1.5));
   const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(-2, 3.5, 2.5); scene.add(key);
-  const rim = new THREE.DirectionalLight(0xd8ffb0, 1.1); rim.position.set(2, 2, -3); scene.add(rim);
+  const rim = new THREE.DirectionalLight(0xffffff, .9); rim.position.set(2, 2, -3); scene.add(rim);
   scene.add(M.root);
 
   // Alkuasento: pudotus lattialle ja kiinnityspiste
@@ -327,6 +337,9 @@ async function setup(ex, sex, w, h) {
   const dist = fitH / (2 * Math.tan(THREE.MathUtils.degToRad(14))) * 1.04;
   const tA = a.A.torso ?? 0, lying = !a.front && ['hip', 'shoulders'].includes(a.A.anchor) && (Math.abs(tA - 270) < 40 || Math.abs(tA - 90) < 40);
   const dir = a.front ? new THREE.Vector3(.28, .1, 1).normalize() : lying ? new THREE.Vector3(-.85, .7, .5).normalize() : new THREE.Vector3(-1, .14, .62).normalize();
+  // Kohdelihas takapuolella → kamera takaviistoon, jotta punainen lihas näkyy
+  const BACKM = ['hamstrings', 'glutes', 'lats', 'middle back', 'lower back', 'traps', 'triceps', 'calves'];
+  if (BACKM.includes((ex.primaryMuscles || [])[0]) && !(lying && a.A.torso > 200)) dir.z = -dir.z;
   cam.position.copy(center).addScaledVector(dir, dist); cam.lookAt(center);
   const frame = t => { place(t); props.dyn.forEach(f => f()); if (cable) cable(); renderer.render(scene, cam); };
   const dispose = () => { scene.remove(M.root); scene.traverse(o => { if (o.geometry) o.geometry.dispose(); }); };

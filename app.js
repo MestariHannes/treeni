@@ -4,7 +4,7 @@
   const DB_URL = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
   const IMG = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
   const KEY = 'treeni.v1'; // avain pidetään samana, jotta vanhat tiedot säilyvät
-  const VERSION = '3.0';
+  const VERSION = '3.1';
   const PAGE = 30;
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -101,12 +101,28 @@
     const sex = bodySex();
     $('#map').innerHTML = Muscles.svg('front', { interactive: true, selected: ui.sel, sex }) + Muscles.svg('back', { interactive: true, selected: ui.sel, sex });
     document.querySelectorAll('#sexSeg button').forEach(b => b.classList.toggle('on', b.dataset.sex === sex));
+    renderGroups();
     const c = $('#selChips');
     c.innerHTML = ui.sel.size
       ? [...ui.sel].map(m => `<button class="chip" data-unsel="${esc(m)}">${esc(mName(m))} <b>×</b></button>`).join('') +
         (ui.sel.size > 1 ? '<button class="chip ghost" data-clear>Tyhjennä</button>' : '')
       : '<span class="chip ghost">Napauta lihasta kartalta</span>';
   }
+  // Lihasryhmärivi: pieni vartalokuvake jokaiselle lihasryhmälle, valittu punaisena
+  const MGROUPS = [['chest', 'front'], ['shoulders', 'front'], ['biceps', 'front'], ['triceps', 'back'], ['forearms', 'front'], ['abdominals', 'front'],
+    ['lats', 'back'], ['middle back', 'back'], ['lower back', 'back'], ['traps', 'back'], ['glutes', 'back'], ['quadriceps', 'front'],
+    ['hamstrings', 'back'], ['calves', 'back'], ['adductors', 'front'], ['abductors', 'front'], ['neck', 'front']];
+  const CROP = { glutes: '38 170 124 115', quadriceps: '38 185 124 150', hamstrings: '38 205 124 140', adductors: '38 185 124 150', abductors: '38 170 124 130', calves: '38 280 124 125', neck: '55 20 90 110' };
+  function renderGroups() {
+    const sex = bodySex();
+    $('#mgroups').innerHTML = MGROUPS.map(([m, side]) => `<button class="mg ${ui.sel.has(m) ? 'on' : ''}" data-mg="${esc(m)}" aria-pressed="${ui.sel.has(m)}">
+      <span class="mg-i">${Muscles.svg(side, { primary: [m], sex, viewBox: CROP[m] || '30 40 140 175' })}</span><span class="mg-t">${esc(mName(m))}</span></button>`).join('');
+  }
+  $('#mgroups').addEventListener('click', ev => {
+    const b = ev.target.closest('[data-mg]'); if (!b) return;
+    const m = b.dataset.mg; ui.sel.has(m) ? ui.sel.delete(m) : ui.sel.add(m);
+    ui.shown = PAGE; renderMap(); renderList();
+  });
   function filtered() {
     const q = ui.q.trim().toLowerCase();
     return DB.filter(e =>
@@ -212,7 +228,7 @@
         <button class="x" data-fav="${esc(id)}" aria-label="Suosikki">${S.favs.includes(id) ? '★' : '☆'}</button>
         <button class="x" data-close aria-label="Sulje">✕</button></div>
       <div class="anim" id="mqBox"></div>
-      <div class="anim-bar"><span>Hahmo näyttää liikkeen suunnan. Vihreä = kohdelihas.</span>${(e.images || []).length ? '<button class="linkbtn2" data-photos>Valokuvat</button>' : ''}</div>
+      <div class="anim-bar"><span>Punainen = kohdelihas. Hahmo näyttää liikkeen suunnan.</span>${(e.images || []).length ? '<button class="linkbtn2" data-photos>Valokuvat</button>' : ''}</div>
       <div class="tabs2">
         <button data-tab="info" class="${tab === 'info' ? 'on' : ''}">Tietoa</button>
         <button data-tab="hist" class="${tab === 'hist' ? 'on' : ''}">Historia</button>
